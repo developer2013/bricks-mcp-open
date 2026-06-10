@@ -492,8 +492,13 @@ const styleSystemTools = [
       try {
         const data = await wpGetCached('/css-variables', TTL.COLOR_PALETTE);
 
-        const variables = data.css_variables || [];
-        const count = data.count || 0;
+        let variables = data.css_variables || [];
+        // Legacy/corrupted data can come back as a JSON string. Parse it so it renders
+        // as real tokens instead of being iterated character-by-character.
+        if (typeof variables === 'string') {
+          try { variables = JSON.parse(variables); } catch (e) { /* leave as-is */ }
+        }
+        const count = Array.isArray(variables) ? variables.length : (data.count || 0);
         const optionKey = data.option_key || 'unknown';
 
         if (!variables || (Array.isArray(variables) && variables.length === 0) || (typeof variables === 'object' && Object.keys(variables).length === 0)) {
@@ -542,7 +547,14 @@ const styleSystemTools = [
     },
     handler: async (args) => {
       try {
-        const { css_variables } = args;
+        let { css_variables } = args;
+        // Bricks stores `bricks_global_variables` as an ARRAY. If we forward a JSON
+        // string, the option is saved as a string and the builder's Variables Manager
+        // iterates it character-by-character (thousands of garbage rows -> broken UI).
+        // Always send a real array/object.
+        if (typeof css_variables === 'string') {
+          try { css_variables = JSON.parse(css_variables); } catch (e) { /* leave as-is */ }
+        }
 
         cache.invalidatePrefix('/css-variables');
 

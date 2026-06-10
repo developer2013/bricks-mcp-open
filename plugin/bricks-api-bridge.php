@@ -3179,6 +3179,14 @@ function bricks_api_bridge_get_css_variables() {
 	foreach ( $option_keys as $key ) {
 		$val = get_option( $key, null );
 		if ( ! empty( $val ) ) {
+			// Legacy data may be stored as a JSON string; normalize to an array so
+			// clients (and the Bricks builder) never receive a stringified blob.
+			if ( is_string( $val ) ) {
+				$decoded = json_decode( $val, true );
+				if ( is_array( $decoded ) ) {
+					$val = $decoded;
+				}
+			}
 			$variables = $val;
 			$found_key = $key;
 			break;
@@ -3222,13 +3230,24 @@ function bricks_api_bridge_update_css_variables( $request ) {
 		}
 	}
 
+	$value = $body['css_variables'];
+	// Defensive: Bricks expects this option to be an array. If a client sends a JSON
+	// string, decode it so we never persist a stringified blob (which makes the Bricks
+	// Variables Manager iterate the string character-by-character and break the builder).
+	if ( is_string( $value ) ) {
+		$decoded = json_decode( $value, true );
+		if ( is_array( $decoded ) ) {
+			$value = $decoded;
+		}
+	}
+
 	delete_transient( 'bab_css_variables' );
-	update_option( $target_key, $body['css_variables'] );
+	update_option( $target_key, $value );
 
 	return new WP_REST_Response( array(
 		'success'       => true,
-		'css_variables' => $body['css_variables'],
-		'count'         => is_array( $body['css_variables'] ) ? count( $body['css_variables'] ) : 0,
+		'css_variables' => $value,
+		'count'         => is_array( $value ) ? count( $value ) : 0,
 		'option_key'    => $target_key,
 	), 200 );
 }
