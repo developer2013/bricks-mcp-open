@@ -14,6 +14,7 @@ import {
   ListToolsRequestSchema, CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import config from './config.js';
+import { printBanner } from './banner.js';
 import { initSites, getActiveSite, validateActiveSite } from './site-manager.js';
 import { wpGetCached } from './utils/wp-api.js';
 import { TTL } from './utils/cache.js';
@@ -148,7 +149,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // Start the server
 const transport = new StdioServerTransport();
 server.connect(transport)
-  .then(() => {
+  .then(async () => {
+    await printBanner({
+      version: config.SERVER_VERSION,
+      toolCount: TOOLS.length,
+      moduleCount: 17,
+      site: activeSite.url.replace(/^https?:\/\//, ''),
+    });
     console.error(`${config.SERVER_NAME} connected and listening`);
 
     // Warm cache in background (non-blocking)

@@ -1,5 +1,18 @@
 # bricks-mcp
 
+```text
+▟███████████████████████████████████████████▙
+█  ____  ____  ___ ____ _  ______           █
+█ | __ )|  _ \|_ _/ ___| |/ / ___|   BRICKS █
+█ |  _ \| |_) || | |   | ' /\___ \          █
+█ | |_) |  _ < | | |___| . \ ___) |  MCP    █
+█ |____/|_| \_\___\____|_|\_\____/          █
+▜▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▛
+  105 tools · 17 modules · MIT licensed
+```
+
+> Printed on startup. In a real terminal the box animates in brick-by-brick (set `BRICKS_BANNER=anim|static|off`).
+
 **The most comprehensive open-source MCP server for [Bricks Builder](https://bricksbuilder.io/).**
 
 100+ tools to manage pages, templates, styles, SEO, content, and more — directly from Claude Code, Cursor, Windsurf, or any MCP-compatible AI assistant.
