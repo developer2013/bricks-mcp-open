@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Bricks API Bridge
  * Description: REST API endpoints for Bricks Builder page data
- * Version: 1.0.2
+ * Version: 1.1.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Author: Bricks API Bridge
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'BRICKS_API_BRIDGE_VERSION', '1.0.2' );
+define( 'BRICKS_API_BRIDGE_VERSION', '1.1.0' );
 define( 'BRICKS_API_BRIDGE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BRICKS_API_BRIDGE_PLUGIN_FILE', __FILE__ );
 
@@ -211,6 +211,14 @@ function bricks_api_bridge_load_includes() {
 		require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-security-audit.php';
 		$security_audit = new Bricks_API_Bridge_Security_Audit();
 		$security_audit->init();
+	}
+
+	// Admin "Connect" interface — guided setup (status, Application Password,
+	// client-config generator, connection test). Admin-only; registers a menu
+	// and adds no REST routes. Feature-flagged for an instant, code-free rollback.
+	if ( is_admin() && get_option( 'bab_admin_ui_enabled', true ) ) {
+		require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-admin-ui.php';
+		Bricks_API_Bridge_Admin_UI::init();
 	}
 }
 
