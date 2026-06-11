@@ -4,6 +4,8 @@ node_modules/
 # Environment & credentials
 .env
 sites.json
+sites.*.json
+.mcp.json
 
 # Logs
 *.log
