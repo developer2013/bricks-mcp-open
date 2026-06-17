@@ -393,6 +393,8 @@ class Bricks_API_Bridge_Admin_UI {
 
 			<?php self::render_backup_section(); ?>
 
+			<?php self::render_page_css_section(); ?>
+
 			<p class="bab-foot">Need hosted Visual QA, accessibility audits and the AI build pipeline? <a href="https://wwwery-good-apps.de/bricks-mcp/" target="_blank" rel="noopener">Bricks MCP Premium →</a></p>
 		</div>
 
@@ -583,6 +585,71 @@ class Bricks_API_Bridge_Admin_UI {
 	}
 
 	/**
+	 * Surface the plugin-injected per-page CSS (`_bab_page_assets['css']`).
+	 *
+	 * This CSS is echoed into the page <head> as <style id="bab-page-css-{ID}">
+	 * and is intentionally not shown in the Bricks builder/settings — which is
+	 * what makes it feel like "CSS I can't find anywhere". List it here
+	 * (read-only) so it isn't a black box; it's written via the page-assets MCP
+	 * endpoint (`bricks_update_page_assets`).
+	 */
+	private static function render_page_css_section() {
+		$ids = get_posts( array(
+			'post_type'              => array( 'page', 'post' ),
+			'post_status'            => array( 'publish', 'draft', 'private' ),
+			'posts_per_page'         => 200,
+			'fields'                 => 'ids',
+			'meta_key'               => '_bab_page_assets',
+			'no_found_rows'          => true,
+			'update_post_term_cache' => false,
+		) );
+		$rows = array();
+		foreach ( $ids as $pid ) {
+			$assets = get_post_meta( $pid, '_bab_page_assets', true );
+			if ( ! is_array( $assets ) ) {
+				continue;
+			}
+			$css  = isset( $assets['css'] ) ? (string) $assets['css'] : '';
+			$crit = isset( $assets['css_critical'] ) ? (string) $assets['css_critical'] : '';
+			if ( '' === trim( $css ) && '' === trim( $crit ) ) {
+				continue;
+			}
+			$rows[] = array( 'id' => (int) $pid, 'css' => $css, 'crit' => $crit );
+		}
+		?>
+		<div class="bab-step">
+			<div class="bab-step-h"><span class="bab-num">⌘</span> Plugin-managed page CSS</div>
+			<div class="bab-step-b">
+				<p>When the assistant can't express a style through Bricks element or global-class settings, it stores per-page CSS here. The plugin injects it into the page <code>&lt;head&gt;</code> as <code>&lt;style id="bab-page-css-{ID}"&gt;</code> — so it does <strong>not</strong> appear in the Bricks builder, theme, element, page or class panels. If you've ever found styles you couldn't locate anywhere, this is almost certainly the source. It's shown read-only below; edit it via the MCP (<code>bricks_update_page_assets</code>), or steer the assistant toward element/global-class settings so little lands here.</p>
+				<?php if ( ! $rows ) : ?>
+					<p class="bab-muted">No pages currently have plugin-injected CSS. 👍</p>
+				<?php else : ?>
+					<?php
+					foreach ( $rows as $r ) :
+						$title = get_the_title( $r['id'] );
+						$title = '' !== $title ? $title : '(no title)';
+						$bytes = strlen( $r['css'] ) + strlen( $r['crit'] );
+						?>
+						<details class="bab-pagecss">
+							<summary><strong><?php echo esc_html( $title ); ?></strong> <span class="bab-muted">#<?php echo (int) $r['id']; ?> · <?php echo esc_html( size_format( $bytes ) ); ?> · <code>bab-page-css-<?php echo (int) $r['id']; ?></code></span> &nbsp;<a href="<?php echo esc_url( (string) get_permalink( $r['id'] ) ); ?>" target="_blank" rel="noopener noreferrer">view&nbsp;↗</a></summary>
+							<?php if ( '' !== trim( $r['crit'] ) ) : ?>
+								<p class="bab-muted">Critical (above-the-fold) bundle:</p>
+								<pre class="bab-css"><?php echo esc_html( $r['crit'] ); ?></pre>
+							<?php endif; ?>
+							<?php if ( '' !== trim( $r['css'] ) ) : ?>
+								<pre class="bab-css"><?php echo esc_html( $r['css'] ); ?></pre>
+							<?php endif; ?>
+						</details>
+						<?php
+					endforeach;
+					?>
+				<?php endif; ?>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
 	 * Inline styles for the page (no external asset file → no build step).
 	 */
 	private static function render_styles() {
@@ -605,6 +672,10 @@ class Bricks_API_Bridge_Admin_UI {
 		.bab-step-h{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;padding:14px 18px;border-bottom:1px solid #f0f0f1;background:#fbfbfc}
 		.bab-num{display:inline-flex;width:24px;height:24px;border-radius:50%;background:#FC5778;color:#fff;align-items:center;justify-content:center;font-size:13px}
 		.bab-step-b{padding:16px 18px}
+		.bab-muted{color:#646970;font-size:12.5px}
+		.bab-pagecss{margin:8px 0;border:1px solid #f0f0f1;border-radius:8px;padding:8px 12px}
+		.bab-pagecss summary{cursor:pointer;font-size:13px}
+		.bab-css{max-height:300px;overflow:auto;background:#1e1e1e;color:#e6e6e6;border-radius:8px;padding:12px;font-size:12px;white-space:pre-wrap;word-break:break-word;margin:8px 0}
 		.bab-copyrow{display:flex;align-items:center;gap:10px;margin:10px 0}
 		.bab-copyrow code{display:block;flex:1;background:#f6f7f7;border:1px solid #dcdcde;border-radius:6px;padding:10px 12px;font-size:13px;word-break:break-all}
 		.bab-connect textarea{width:100%;font-family:Menlo,Consolas,monospace;font-size:12.5px;background:#1e1e1e;color:#e6e6e6;border-radius:8px;border:none;padding:14px}
