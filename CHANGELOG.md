@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.2.2 (2026-06-17)
+
+### Fixed
+- **HTML→Bricks converter: a plain `<div>` is no longer forced into a flex container.** The converter was blanket-mapping `<div>` (and `nav` / `header` / `footer` / `main` / `article` / `aside` / `figure`) to a Bricks `container`, which is `display: flex` — so a plain block-flow wrapper silently inherited flex positioning it never had. It now maps those tags to a `block` (a real `<div>`) and only reaches for `container` when the resolved styles (inline **or** class-resolved from the provided stylesheet) actually lay it out as flex/grid. (h/t the r/BricksBuilder thread.)
+
+### Added
+- **Connect: a "Plugin-managed page CSS" panel.** The setup screen now lists pages that carry plugin-injected per-page CSS — the bundle stored in `_bab_page_assets` and echoed into `<head>` as `<style id="bab-page-css-{ID}">`. That CSS is intentionally not shown in the Bricks builder/settings/theme/class panels (it's for CSS variables, critical CSS and anything the assistant couldn't express via element/class settings), which is what made it feel like "CSS I can't find anywhere." It's read-only here (editable via `bricks_update_page_assets`), so it's no longer a black box.
+
+## 1.2.1 (2026-06-17)
+
+### Added
+- **Connect — a guided setup UI.** Turns the headless REST bridge into an admin screen ("Bricks MCP") so you don't have to wire everything by hand: a status grid (plugin / Bricks / REST endpoints / Application Passwords), **one-click Application Password creation** (copy button; the plaintext is shown once via a 120s transient — never via the URL — with a revoke table), a **multi-client config generator** with ready-to-paste config for Claude Code, Claude Desktop, Cursor, Windsurf, Cherry Studio and Hermes (pre-filled with your site URL, username and the generated password), a connection test, and an admin-bar status chip. Purely additive — it registers an admin menu only (no REST route or auth path touched), gated behind `is_admin()` + the `bab_admin_ui_enabled` flag.
+- **Full-state backup & restore.** Capture the whole Bricks layer (pages / templates / global classes / menus) plus a curated allowlist of WordPress core settings into one downloadable file, and restore it. The backup directory is hardened (`.htaccess` deny + `index.php` + an unguessable token filename) and the settings dump deliberately excludes secrets / API keys.
+
+### Security
+- **Spoofing-resistant client IP for rate-limiting & the login lockout.** Proxy-forwarded headers (`X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP`) are now honored only from configured trusted proxies (the `bab_trusted_proxies` constant / option / filter; set it to `'*'` to restore the legacy behavior); otherwise the real TCP peer (`REMOTE_ADDR`) is used. Closes a bypass where a client could forge `X-Forwarded-For` to rotate the throttle key and defeat the login lockout. The REST and login throttles now key on the same source.
+- **Object-level authorization on page-mutating endpoints.** `update_page` / `patch_page` / `append_elements` / `clone_page` / `build_page` / `sign-code` now require `edit_post` on the specific target page, not merely the generic `edit_posts` capability — so a lower-privileged user can no longer overwrite arbitrary pages by ID. Reads are unchanged; administrators are unaffected.
+- **Backup restore is allowlist-based.** `import_full_state` now writes only the same curated WordPress-core option keys the export captures (previously an infra-only denylist), so a crafted backup file can no longer set arbitrary options.
+- **Backup filename token widened** 6 → 20 characters (the only protection on nginx, where the directory's `.htaccess` deny is ignored).
+- **Application Passwords force-enable is now opt-out-able** via the `BAB_FORCE_APP_PASSWORDS` constant / `bab_force_app_passwords` filter (default unchanged), so a site can keep its deliberate decision to disable App Passwords.
+
 ## 1.0.4 (2026-06-04)
 
 ### Added

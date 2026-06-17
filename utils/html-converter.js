@@ -386,7 +386,7 @@ export function htmlToBricks(html, css = '', options = {}) {
     if (!tagName) return null;
 
     const $node = $(node);
-    const bricksName = getElementName(tagName, $node, $);
+    let bricksName = getElementName(tagName, $node, $);
     if (bricksName === null) return null; // skip script/style/etc.
 
     const id = generateId(usedIds);
@@ -418,6 +418,18 @@ export function htmlToBricks(html, css = '', options = {}) {
     const inlineStyle = $node.attr('style');
     if (inlineStyle) {
       Object.assign(allCSS, parseInlineStyle(inlineStyle));
+    }
+
+    // Container-ish tags (div/nav/header/main/...) map to a Bricks `container`,
+    // which is display:flex. If the resolved styles don't actually lay the
+    // element out as flex/grid, downgrade it to a plain `block` (a real <div>)
+    // so it keeps normal block flow instead of inheriting flex positioning it
+    // never had. (Reported: plain wrapper divs silently becoming flex containers.)
+    if (bricksName === 'container') {
+      const disp = String(allCSS['display'] || '').toLowerCase().trim();
+      if (!['flex', 'inline-flex', 'grid', 'inline-grid'].includes(disp)) {
+        bricksName = 'block';
+      }
     }
 
     // Map all CSS to Bricks settings
