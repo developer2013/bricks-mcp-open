@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.2 (2026-06-17)
+
+### Fixed
+- **HTML→Bricks converter: a plain `<div>` is no longer forced into a flex container.** The converter was blanket-mapping `<div>` (and `nav` / `header` / `footer` / `main` / `article` / `aside` / `figure`) to a Bricks `container`, which is `display: flex` — so a plain block-flow wrapper silently inherited flex positioning it never had. It now maps those tags to a `block` (a real `<div>`) and only reaches for `container` when the resolved styles (inline **or** class-resolved from the provided stylesheet) actually lay it out as flex/grid. (h/t the r/BricksBuilder thread.)
+
+### Added
+- **Connect: a "Plugin-managed page CSS" panel.** The setup screen now lists pages that carry plugin-injected per-page CSS — the bundle stored in `_bab_page_assets` and echoed into `<head>` as `<style id="bab-page-css-{ID}">`. That CSS is intentionally not shown in the Bricks builder/settings/theme/class panels (it's for CSS variables, critical CSS and anything the assistant couldn't express via element/class settings), which is what made it feel like "CSS I can't find anywhere." It's read-only here (editable via `bricks_update_page_assets`), so it's no longer a black box.
+
 ## 1.2.1 (2026-06-17)
 
 ### Added

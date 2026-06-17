@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Bricks API Bridge
  * Description: REST API endpoints for Bricks Builder page data
- * Version: 1.2.1
+ * Version: 1.2.2
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Author: Bricks API Bridge
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'BRICKS_API_BRIDGE_VERSION', '1.2.1' );
+define( 'BRICKS_API_BRIDGE_VERSION', '1.2.2' );
 define( 'BRICKS_API_BRIDGE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BRICKS_API_BRIDGE_PLUGIN_FILE', __FILE__ );
 
