@@ -76,10 +76,72 @@ class Bricks_API_Bridge_Admin_UI {
 	 * Handle POST actions (create / revoke Application Password). Nonce-guarded.
 	 */
 	public static function handle_actions() {
+		// ── Backup download (GET link, nonce-guarded). Streams + exits. ──
+		if (
+			isset( $_GET['bab_action'] ) && 'download_backup' === $_GET['bab_action']
+			&& current_user_can( 'manage_options' )
+			&& class_exists( 'Bricks_API_Bridge_Backup_Export' )
+		) {
+			check_admin_referer( 'bab_download_backup' );
+			$file = isset( $_GET['file'] ) ? wp_unslash( $_GET['file'] ) : '';
+			Bricks_API_Bridge_Backup_Export::stream_download( $file ); // exits.
+		}
+
 		if ( empty( $_POST['bab_action'] ) || ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
 		$action = sanitize_text_field( wp_unslash( $_POST['bab_action'] ) );
+
+		if ( 'create_full_backup' === $action && class_exists( 'Bricks_API_Bridge_Backup_Export' ) ) {
+			check_admin_referer( 'bab_create_full_backup' );
+			$result = Bricks_API_Bridge_Backup_Export::create_backup();
+			if ( is_wp_error( $result ) ) {
+				self::redirect_with( array( 'bab_bkerr' => '1' ) );
+			} else {
+				self::redirect_with( array( 'bab_bkok' => $result['file'] ) );
+			}
+			return;
+		}
+
+		if ( 'delete_backup' === $action && class_exists( 'Bricks_API_Bridge_Backup_Export' ) ) {
+			check_admin_referer( 'bab_delete_backup' );
+			$file = isset( $_POST['file'] ) ? wp_unslash( $_POST['file'] ) : '';
+			Bricks_API_Bridge_Backup_Export::delete_backup( $file );
+			self::redirect_with( array( 'bab_bkdel' => '1' ) );
+			return;
+		}
+
+		if ( 'restore_backup' === $action && class_exists( 'Bricks_API_Bridge_Backup_Export' ) ) {
+			check_admin_referer( 'bab_restore_backup' );
+			$file = isset( $_POST['file'] ) ? wp_unslash( $_POST['file'] ) : '';
+			$data = Bricks_API_Bridge_Backup_Export::read_backup( $file );
+			if ( is_wp_error( $data ) ) {
+				self::redirect_with( array( 'bab_rserr' => '1' ) );
+				return;
+			}
+			$report = Bricks_API_Bridge_Backup_Export::import_full_state( $data );
+			$safety = is_wp_error( $report ) ? '' : ( $report['safety_backup'] ?? '' );
+			self::redirect_with( array( 'bab_restored' => $safety ? $safety : '1' ) );
+			return;
+		}
+
+		if ( 'import_backup' === $action && class_exists( 'Bricks_API_Bridge_Backup_Export' ) ) {
+			check_admin_referer( 'bab_import_backup' );
+			if ( empty( $_FILES['import_file']['tmp_name'] ) || ! is_uploaded_file( $_FILES['import_file']['tmp_name'] ) ) {
+				self::redirect_with( array( 'bab_rserr' => '1' ) );
+				return;
+			}
+			$json = file_get_contents( $_FILES['import_file']['tmp_name'] );
+			$data = json_decode( $json, true );
+			if ( ! is_array( $data ) ) {
+				self::redirect_with( array( 'bab_rserr' => '1' ) );
+				return;
+			}
+			$report = Bricks_API_Bridge_Backup_Export::import_full_state( $data );
+			$safety = is_wp_error( $report ) ? '' : ( $report['safety_backup'] ?? '' );
+			self::redirect_with( array( 'bab_restored' => $safety ? $safety : '1' ) );
+			return;
+		}
 
 		if ( 'create_app_password' === $action ) {
 			check_admin_referer( 'bab_create_app_password' );
@@ -255,7 +317,7 @@ class Bricks_API_Bridge_Admin_UI {
 						<div class="bab-banner bab-ok">
 							<strong>Password created.</strong> Copy it now — it will not be shown again.
 							<div class="bab-copyrow">
-								<code id="bab-newpw"><?php echo esc_html( $new_pw ); ?></code>
+								<code id="bab-newpw"><?php echo esc_html( trim( chunk_split( $new_pw, 4, ' ' ) ) ); ?></code>
 								<button type="button" class="button" data-copy="#bab-newpw">Copy</button>
 							</div>
 						</div>
@@ -329,7 +391,9 @@ class Bricks_API_Bridge_Admin_UI {
 				</div>
 			</div>
 
-			<p class="bab-foot">Need hosted Visual QA, accessibility audits and the AI build pipeline? <a href="https://www.carstensachse.de/" target="_blank" rel="noopener">Bricks MCP Premium →</a></p>
+			<?php self::render_backup_section(); ?>
+
+			<p class="bab-foot">Need hosted Visual QA, accessibility audits and the AI build pipeline? <a href="https://wwwery-good-apps.de/bricks-mcp/" target="_blank" rel="noopener">Bricks MCP Premium →</a></p>
 		</div>
 
 		<?php self::render_styles(); ?>
@@ -418,6 +482,107 @@ class Bricks_API_Bridge_Admin_UI {
 	}
 
 	/**
+	 * Render the Backup & Export section.
+	 *
+	 * Creates a full Bricks-layer backup (pages incl. drafts, templates, global
+	 * tokens, menus) on demand and lists existing ones with download/delete.
+	 * Honest about scope: this is NOT a full-site/DB/media backup.
+	 */
+	private static function render_backup_section() {
+		if ( ! class_exists( 'Bricks_API_Bridge_Backup_Export' ) ) {
+			return;
+		}
+		$backups = Bricks_API_Bridge_Backup_Export::list_backups();
+		?>
+		<div class="bab-step">
+			<div class="bab-step-h"><span class="bab-num">★</span> Backup &amp; Export</div>
+			<div class="bab-step-b">
+				<p>Save a complete snapshot of your <strong>Bricks layer</strong> — every page (including drafts), templates, global styles/classes/fonts/colors and your navigation menus — as one downloadable JSON file.</p>
+
+				<?php if ( isset( $_GET['bab_bkok'] ) ) : ?>
+					<div class="bab-banner bab-ok"><strong>Backup created.</strong> It's listed below and ready to download.</div>
+				<?php elseif ( isset( $_GET['bab_bkerr'] ) ) : ?>
+					<div class="bab-banner bab-err">Could not write the backup. Check that the uploads directory is writable.</div>
+				<?php elseif ( isset( $_GET['bab_bkdel'] ) ) : ?>
+					<div class="bab-banner bab-ok">Backup deleted.</div>
+				<?php elseif ( isset( $_GET['bab_restored'] ) ) : ?>
+					<div class="bab-banner bab-ok"><strong>Restore complete.</strong> Pages, templates, global styles and settings were imported.<?php $sb = sanitize_file_name( wp_unslash( $_GET['bab_restored'] ) ); if ( $sb && '1' !== $sb ) : ?> A safety backup of the previous state was saved as <code><?php echo esc_html( $sb ); ?></code>.<?php endif; ?></div>
+				<?php elseif ( isset( $_GET['bab_rserr'] ) ) : ?>
+					<div class="bab-banner bab-err">Restore failed — the file is not a valid full-state backup.</div>
+				<?php endif; ?>
+
+				<form method="post">
+					<?php wp_nonce_field( 'bab_create_full_backup' ); ?>
+					<input type="hidden" name="bab_action" value="create_full_backup" />
+					<button type="submit" class="button button-primary">Create full backup now</button>
+				</form>
+
+				<?php if ( $backups ) : ?>
+					<table class="widefat striped bab-bktable">
+						<thead><tr><th>Backup</th><th>Date</th><th>Size</th><th></th></tr></thead>
+						<tbody>
+						<?php
+						foreach ( $backups as $bk ) :
+							$dl = wp_nonce_url(
+								add_query_arg(
+									array(
+										'page'       => self::PAGE_SLUG,
+										'bab_action' => 'download_backup',
+										'file'       => rawurlencode( $bk['file'] ),
+									),
+									admin_url( 'admin.php' )
+								),
+								'bab_download_backup'
+							);
+							?>
+							<tr>
+								<td><code><?php echo esc_html( $bk['file'] ); ?></code></td>
+								<td><?php echo esc_html( gmdate( 'Y-m-d H:i', $bk['time'] ) ); ?> UTC</td>
+								<td><?php echo esc_html( size_format( $bk['size'] ) ); ?></td>
+								<td>
+									<a class="button" href="<?php echo esc_url( $dl ); ?>">Download</a>
+									<form method="post" style="display:inline" onsubmit="return confirm('Restore this backup? It overwrites current pages, templates, global styles and settings. A safety backup of the current state is taken first. (Site URL, theme and active plugins are NOT changed.)');">
+										<?php wp_nonce_field( 'bab_restore_backup' ); ?>
+										<input type="hidden" name="bab_action" value="restore_backup" />
+										<input type="hidden" name="file" value="<?php echo esc_attr( $bk['file'] ); ?>" />
+										<button type="submit" class="button">Restore</button>
+									</form>
+									<form method="post" style="display:inline" onsubmit="return confirm('Delete this backup file?');">
+										<?php wp_nonce_field( 'bab_delete_backup' ); ?>
+										<input type="hidden" name="bab_action" value="delete_backup" />
+										<input type="hidden" name="file" value="<?php echo esc_attr( $bk['file'] ); ?>" />
+										<button type="submit" class="button-link-delete">Delete</button>
+									</form>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+						</tbody>
+					</table>
+					<p class="bab-hint">The newest <?php echo (int) apply_filters( 'bab_backup_export_keep', 10 ); ?> backups are kept automatically; older ones are pruned.</p>
+				<?php else : ?>
+					<p class="bab-hint">No backups yet.</p>
+				<?php endif; ?>
+
+				<details class="bab-import">
+					<summary>Import / restore from a file</summary>
+					<p>Upload a full-state backup JSON (e.g. one downloaded from another site) to restore it here. A safety backup of the current state is taken first; site URL, theme and active plugins are never overwritten.</p>
+					<form method="post" enctype="multipart/form-data" onsubmit="return confirm('Import this file? It overwrites current pages, templates, global styles and settings. A safety backup is taken first.');">
+						<?php wp_nonce_field( 'bab_import_backup' ); ?>
+						<input type="hidden" name="bab_action" value="import_backup" />
+						<input type="file" name="import_file" accept="application/json,.json" required />
+						<button type="submit" class="button">Upload &amp; restore</button>
+					</form>
+				</details>
+
+				<div class="bab-banner bab-warn" style="margin-top:16px">
+					<strong>Scope:</strong> this backs up the Bricks design &amp; content layer — <em>not</em> media files, the WordPress database, users or other plugins. For full disaster recovery, also use a host snapshot or a dedicated backup plugin.
+				</div>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
 	 * Inline styles for the page (no external asset file → no build step).
 	 */
 	private static function render_styles() {
@@ -438,18 +603,27 @@ class Bricks_API_Bridge_Admin_UI {
 		.bab-card-note{margin-left:auto;color:#646970;font-size:12px}
 		.bab-step{background:#fff;border:1px solid #dcdcde;border-radius:10px;margin:16px 0;overflow:hidden}
 		.bab-step-h{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;padding:14px 18px;border-bottom:1px solid #f0f0f1;background:#fbfbfc}
-		.bab-num{display:inline-flex;width:24px;height:24px;border-radius:50%;background:#2271b1;color:#fff;align-items:center;justify-content:center;font-size:13px}
+		.bab-num{display:inline-flex;width:24px;height:24px;border-radius:50%;background:#FC5778;color:#fff;align-items:center;justify-content:center;font-size:13px}
 		.bab-step-b{padding:16px 18px}
 		.bab-copyrow{display:flex;align-items:center;gap:10px;margin:10px 0}
 		.bab-copyrow code{display:block;flex:1;background:#f6f7f7;border:1px solid #dcdcde;border-radius:6px;padding:10px 12px;font-size:13px;word-break:break-all}
 		.bab-connect textarea{width:100%;font-family:Menlo,Consolas,monospace;font-size:12.5px;background:#1e1e1e;color:#e6e6e6;border-radius:8px;border:none;padding:14px}
 		.bab-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 		.bab-tab{background:#f0f0f1;border:1px solid #dcdcde;border-radius:999px;padding:5px 14px;cursor:pointer;font-size:13px}
-		.bab-tab.active{background:#2271b1;color:#fff;border-color:#2271b1}
+		.bab-tab.active{background:#FC5778;color:#fff;border-color:#FC5778}
 		.bab-hint{color:#646970;font-size:13px}
 		.bab-manage{margin-top:16px}
-		.bab-manage summary{cursor:pointer;color:#2271b1}
+		.bab-manage summary,.bab-import summary{cursor:pointer;color:#FC5778}
+		.bab-import{margin-top:18px;padding-top:6px;border-top:1px solid #f0f0f1}
+		.bab-import input[type=file]{margin:8px 10px 8px 0}
+		.bab-bktable{margin-top:14px}
 		.bab-foot{margin-top:26px;color:#646970}
+		.bab-foot a{color:#FC5778;font-weight:600}
+		/* Brand: pink accent + repaint WP-blue primary buttons */
+		.bab-connect h1{position:relative}
+		.bab-connect h1::after{content:"";display:block;width:46px;height:4px;background:#FC5778;border-radius:2px;margin-top:10px}
+		.bab-connect .button-primary{background:#FC5778!important;border-color:#E83E60!important;color:#fff!important;box-shadow:none!important;text-shadow:none!important}
+		.bab-connect .button-primary:hover,.bab-connect .button-primary:focus{background:#E83E60!important;border-color:#E83E60!important}
 		</style>
 		<?php
 	}

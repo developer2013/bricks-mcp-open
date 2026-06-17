@@ -119,15 +119,10 @@ class Bricks_API_Bridge_Security_Hardening {
 	 * @return string
 	 */
 	private function get_client_ip() {
-		$headers = array( 'HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR' );
-		foreach ( $headers as $header ) {
-			if ( ! empty( $_SERVER[ $header ] ) ) {
-				$ip = strtok( $_SERVER[ $header ], ',' );
-				$ip = trim( $ip );
-				if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
-					return $ip;
-				}
-			}
+		// Delegate to the shared, spoofing-resistant resolver (honors proxy
+		// headers only from configured trusted proxies — bab_trusted_proxies).
+		if ( function_exists( 'bricks_api_bridge_get_client_ip' ) ) {
+			return bricks_api_bridge_get_client_ip();
 		}
 		return isset( $_SERVER['REMOTE_ADDR'] ) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
 	}

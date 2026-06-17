@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.1 (2026-06-17)
+
+### Added
+- **Connect — a guided setup UI.** Turns the headless REST bridge into an admin screen ("Bricks MCP") so you don't have to wire everything by hand: a status grid (plugin / Bricks / REST endpoints / Application Passwords), **one-click Application Password creation** (copy button; the plaintext is shown once via a 120s transient — never via the URL — with a revoke table), a **multi-client config generator** with ready-to-paste config for Claude Code, Claude Desktop, Cursor, Windsurf, Cherry Studio and Hermes (pre-filled with your site URL, username and the generated password), a connection test, and an admin-bar status chip. Purely additive — it registers an admin menu only (no REST route or auth path touched), gated behind `is_admin()` + the `bab_admin_ui_enabled` flag.
+- **Full-state backup & restore.** Capture the whole Bricks layer (pages / templates / global classes / menus) plus a curated allowlist of WordPress core settings into one downloadable file, and restore it. The backup directory is hardened (`.htaccess` deny + `index.php` + an unguessable token filename) and the settings dump deliberately excludes secrets / API keys.
+
+### Security
+- **Spoofing-resistant client IP for rate-limiting & the login lockout.** Proxy-forwarded headers (`X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP`) are now honored only from configured trusted proxies (the `bab_trusted_proxies` constant / option / filter; set it to `'*'` to restore the legacy behavior); otherwise the real TCP peer (`REMOTE_ADDR`) is used. Closes a bypass where a client could forge `X-Forwarded-For` to rotate the throttle key and defeat the login lockout. The REST and login throttles now key on the same source.
+- **Object-level authorization on page-mutating endpoints.** `update_page` / `patch_page` / `append_elements` / `clone_page` / `build_page` / `sign-code` now require `edit_post` on the specific target page, not merely the generic `edit_posts` capability — so a lower-privileged user can no longer overwrite arbitrary pages by ID. Reads are unchanged; administrators are unaffected.
+- **Backup restore is allowlist-based.** `import_full_state` now writes only the same curated WordPress-core option keys the export captures (previously an infra-only denylist), so a crafted backup file can no longer set arbitrary options.
+- **Backup filename token widened** 6 → 20 characters (the only protection on nginx, where the directory's `.htaccess` deny is ignored).
+- **Application Passwords force-enable is now opt-out-able** via the `BAB_FORCE_APP_PASSWORDS` constant / `bab_force_app_passwords` filter (default unchanged), so a site can keep its deliberate decision to disable App Passwords.
+
 ## 1.0.4 (2026-06-04)
 
 ### Added

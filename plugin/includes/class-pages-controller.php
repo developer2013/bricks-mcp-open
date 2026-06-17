@@ -272,6 +272,30 @@ class Bricks_API_Bridge_Pages {
 	 * @param WP_REST_Request $request The REST request.
 	 * @return WP_REST_Response|WP_Error
 	 */
+	/**
+	 * Object-level authorization gate for page-mutating handlers.
+	 *
+	 * The route permission_callback only checks the generic `edit_posts`
+	 * capability, so without this an Author/Editor — or a stolen low-privilege
+	 * Application Password — could overwrite ANY page by ID, including pages
+	 * they don't own. Administrators (manage_options) always pass, so the MCP's
+	 * own admin-token flow is unaffected. Callers invoke this AFTER the
+	 * existence (404) check so missing pages still return 404 for everyone.
+	 *
+	 * @param int $post_id The target post ID (already confirmed to exist).
+	 * @return WP_Error|null WP_Error(403) when not allowed, null otherwise.
+	 */
+	private function require_can_edit( $post_id ) {
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new WP_Error(
+				'bricks_api_bridge_forbidden',
+				__( 'You do not have permission to edit this page.', 'bricks-api-bridge' ),
+				array( 'status' => 403 )
+			);
+		}
+		return null;
+	}
+
 	public function update_page( $request ) {
 		$post_id = (int) $request->get_param( 'id' );
 		$post    = get_post( $post_id );
@@ -282,6 +306,11 @@ class Bricks_API_Bridge_Pages {
 				__( 'Post not found.', 'bricks-api-bridge' ),
 				array( 'status' => 404 )
 			);
+		}
+
+		$denied = $this->require_can_edit( $post_id );
+		if ( $denied ) {
+			return $denied;
 		}
 
 		$body = $request->get_json_params();
@@ -470,6 +499,11 @@ class Bricks_API_Bridge_Pages {
 				__( 'Post not found.', 'bricks-api-bridge' ),
 				array( 'status' => 404 )
 			);
+		}
+
+		$denied = $this->require_can_edit( $post_id );
+		if ( $denied ) {
+			return $denied;
 		}
 
 		$body = $request->get_json_params();
@@ -728,6 +762,11 @@ class Bricks_API_Bridge_Pages {
 			);
 		}
 
+		$denied = $this->require_can_edit( $post_id );
+		if ( $denied ) {
+			return $denied;
+		}
+
 		$body        = $request->get_json_params();
 		$elements    = isset( $body['elements'] ) ? $body['elements'] : array();
 		$position    = isset( $body['position'] ) ? $body['position'] : 'end';
@@ -861,6 +900,11 @@ class Bricks_API_Bridge_Pages {
 			);
 		}
 
+		$denied = $this->require_can_edit( $post_id );
+		if ( $denied ) {
+			return $denied;
+		}
+
 		$new_id = wp_insert_post(
 			array(
 				'post_title'  => $post->post_title . ' (Copy)',
@@ -991,6 +1035,11 @@ class Bricks_API_Bridge_Pages {
 				__( 'Post not found.', 'bricks-api-bridge' ),
 				array( 'status' => 404 )
 			);
+		}
+
+		$denied = $this->require_can_edit( $post_id );
+		if ( $denied ) {
+			return $denied;
 		}
 
 		$body     = $request->get_json_params();
@@ -1127,6 +1176,11 @@ class Bricks_API_Bridge_Pages {
 				__( 'Page not found.', 'bricks-api-bridge' ),
 				array( 'status' => 404 )
 			);
+		}
+
+		$denied = $this->require_can_edit( $post_id );
+		if ( $denied ) {
+			return $denied;
 		}
 
 		// Read current Bricks data.

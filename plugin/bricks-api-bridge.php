@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Bricks API Bridge
  * Description: REST API endpoints for Bricks Builder page data
- * Version: 1.1.0
+ * Version: 1.2.1
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Author: Bricks API Bridge
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'BRICKS_API_BRIDGE_VERSION', '1.1.0' );
+define( 'BRICKS_API_BRIDGE_VERSION', '1.2.1' );
 define( 'BRICKS_API_BRIDGE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BRICKS_API_BRIDGE_PLUGIN_FILE', __FILE__ );
 
@@ -86,8 +86,14 @@ if ( empty( $_SERVER['PHP_AUTH_USER'] ) ) {
  * Security plugins or hosting configs often disable Application Passwords.
  * We re-enable them so our API bridge can authenticate via Basic Auth
  * using the Application Password the user created in WP Admin.
+ *
+ * Opt out (respect a site's deliberate decision to keep App Passwords off)
+ * by defining BAB_FORCE_APP_PASSWORDS as false, or via the
+ * `bab_force_app_passwords` filter. Defaults to true (re-enable).
  */
-add_filter( 'wp_is_application_passwords_available', '__return_true' );
+if ( apply_filters( 'bab_force_app_passwords', defined( 'BAB_FORCE_APP_PASSWORDS' ) ? (bool) BAB_FORCE_APP_PASSWORDS : true ) ) {
+	add_filter( 'wp_is_application_passwords_available', '__return_true' );
+}
 
 /**
  * Allow font file uploads (woff2, woff, ttf, otf).
@@ -127,6 +133,82 @@ function bab_fix_font_filetype( $data, $file, $filename, $mimes, $real_mime ) {
 // Auth-diag endpoint removed (was public, leaked user info). Use connection_test instead.
 
 /**
+ * Resolve the real client IP for rate-limiting / lockout keys.
+ *
+ * Spoofing-resistant: proxy-forwarded headers (CF-Connecting-IP, X-Real-IP,
+ * X-Forwarded-For) are honored ONLY when the request actually arrives from a
+ * trusted proxy — otherwise a client could forge them to rotate the throttle
+ * key and bypass the login lockout / REST rate limit. With no trusted proxies
+ * configured the function returns REMOTE_ADDR (the real TCP peer) — the secure
+ * default.
+ *
+ * Configure proxies when the site sits behind Cloudflare / a load balancer, as
+ * an array of IPs or IPv4 CIDRs (any one source):
+ *   - define( 'BAB_TRUSTED_PROXIES', array( '173.245.48.0/20', ... ) )
+ *   - update_option( 'bab_trusted_proxies', array( ... ) )
+ *   - add_filter( 'bab_trusted_proxies', ... )
+ * Set it to '*' to trust forwarded headers from any source (legacy behavior /
+ * instant rollback).
+ *
+ * @return string
+ */
+function bricks_api_bridge_get_client_ip() {
+	$remote = isset( $_SERVER['REMOTE_ADDR'] ) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+
+	$trusted = apply_filters(
+		'bab_trusted_proxies',
+		defined( 'BAB_TRUSTED_PROXIES' ) ? BAB_TRUSTED_PROXIES : get_option( 'bab_trusted_proxies', array() )
+	);
+
+	$trust_all = ( '*' === $trusted || true === $trusted );
+	if ( $trust_all || ( is_array( $trusted ) && ! empty( $trusted ) && bricks_api_bridge_ip_in_ranges( $remote, $trusted ) ) ) {
+		foreach ( array( 'HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR' ) as $header ) {
+			if ( ! empty( $_SERVER[ $header ] ) ) {
+				$candidate = trim( strtok( $_SERVER[ $header ], ',' ) );
+				if ( filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+					return $candidate;
+				}
+			}
+		}
+	}
+
+	return $remote;
+}
+
+/**
+ * Test whether an IP falls within a list of exact IPs / IPv4 CIDR ranges.
+ *
+ * @param string $ip     The IP to test.
+ * @param mixed  $ranges Array of IPs (exact match) or IPv4 CIDRs ("10.0.0.0/8").
+ * @return bool
+ */
+function bricks_api_bridge_ip_in_ranges( $ip, $ranges ) {
+	foreach ( (array) $ranges as $range ) {
+		$range = trim( (string) $range );
+		if ( '' === $range ) {
+			continue;
+		}
+		if ( false === strpos( $range, '/' ) ) {
+			if ( $ip === $range ) {
+				return true;
+			}
+			continue;
+		}
+		list( $subnet, $bits ) = explode( '/', $range, 2 );
+		$ip_long     = ip2long( $ip );
+		$subnet_long = ip2long( $subnet );
+		if ( false === $ip_long || false === $subnet_long ) {
+			continue; // Not IPv4 — skip (IPv6 CIDR unsupported; use exact match).
+		}
+		$mask = -1 << ( 32 - (int) $bits );
+		if ( ( $ip_long & $mask ) === ( $subnet_long & $mask ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Fallback: authenticate REST API requests via Basic Auth + wp_authenticate()
  * if Application Passwords still don't work (e.g. user uses regular WP password).
  * Only active for our own REST namespace.
@@ -155,8 +237,11 @@ function bricks_api_bridge_basic_auth( $user_id ) {
 		return $user_id;
 	}
 
-	// Rate limit check for REST Basic Auth.
-	$ip          = isset( $_SERVER['REMOTE_ADDR'] ) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+	// Rate limit check for REST Basic Auth. Use the same spoofing-resistant IP
+	// source as the rest_rate_limit reader so the throttle key matches on both
+	// sides (previously this wrote REMOTE_ADDR while the reader used a
+	// header-derived IP — the keys never matched on proxied sites).
+	$ip          = bricks_api_bridge_get_client_ip();
 	$rl_key      = 'bab_rest_attempts_' . md5( $ip );
 	$rl_attempts = (int) get_transient( $rl_key );
 	if ( $rl_attempts >= 5 ) {
@@ -217,6 +302,12 @@ function bricks_api_bridge_load_includes() {
 	// client-config generator, connection test). Admin-only; registers a menu
 	// and adds no REST routes. Feature-flagged for an instant, code-free rollback.
 	if ( is_admin() && get_option( 'bab_admin_ui_enabled', true ) ) {
+		// Full-state backup/export — loaded before the admin UI so its Backup
+		// section can use it. Admin-only, no REST routes, additive.
+		// Feature-flagged for an instant, code-free rollback.
+		if ( get_option( 'bab_backup_export_enabled', true ) ) {
+			require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-backup-export.php';
+		}
 		require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-admin-ui.php';
 		Bricks_API_Bridge_Admin_UI::init();
 	}
@@ -3468,3 +3559,117 @@ function bricks_api_bridge_update_global_css( $request ) {
 		'global_css' => $body['global_css'],
 	), 200 );
 }
+
+/**
+ * Register Full-State Backup REST routes.
+ *
+ * Exposes the same backup engine the admin Backup section uses, so an AI
+ * assistant can snapshot the Bricks layer before risky operations. Admin-only
+ * (manage_options). Additive and feature-flagged — flip the option to false to
+ * unregister instantly.
+ *
+ *   POST   /backup/full         → create a stored backup, return metadata
+ *   GET    /backup/full         → list stored backups
+ *   DELETE /backup/full?file=…  → delete one stored backup
+ *   GET    /backup/state        → return the live full-state JSON (no file written)
+ */
+function bricks_api_bridge_register_backup_routes() {
+	if ( ! get_option( 'bab_backup_export_enabled', true ) ) {
+		return;
+	}
+	if ( ! class_exists( 'Bricks_API_Bridge_Backup_Export' ) ) {
+		require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-backup-export.php';
+	}
+
+	$can_manage = function () {
+		return current_user_can( 'manage_options' );
+	};
+
+	register_rest_route( 'bricks-bridge/v1', '/backup/full', array(
+		array(
+			'methods'             => 'POST',
+			'permission_callback' => $can_manage,
+			'callback'            => function () {
+				$result = Bricks_API_Bridge_Backup_Export::create_backup();
+				if ( is_wp_error( $result ) ) {
+					return new WP_REST_Response( array(
+						'code'    => $result->get_error_code(),
+						'message' => $result->get_error_message(),
+					), 500 );
+				}
+				return new WP_REST_Response( array( 'success' => true, 'backup' => $result ), 200 );
+			},
+		),
+		array(
+			'methods'             => 'GET',
+			'permission_callback' => $can_manage,
+			'callback'            => function () {
+				return new WP_REST_Response( array(
+					'success' => true,
+					'backups' => Bricks_API_Bridge_Backup_Export::list_backups(),
+				), 200 );
+			},
+		),
+		array(
+			'methods'             => 'DELETE',
+			'permission_callback' => $can_manage,
+			'callback'            => function ( $request ) {
+				$file = (string) $request->get_param( 'file' );
+				$ok   = Bricks_API_Bridge_Backup_Export::delete_backup( $file );
+				return new WP_REST_Response( array(
+					'success' => $ok,
+					'message' => $ok ? 'Backup deleted.' : 'Backup not found or invalid filename.',
+				), $ok ? 200 : 404 );
+			},
+		),
+	) );
+
+	register_rest_route( 'bricks-bridge/v1', '/backup/state', array(
+		'methods'             => 'GET',
+		'permission_callback' => $can_manage,
+		'callback'            => function () {
+			return new WP_REST_Response( Bricks_API_Bridge_Backup_Export::build_full_state(), 200 );
+		},
+	) );
+
+	// Import / restore. Body: { file?: stored-filename, backup?: {full state},
+	// options?: {pages,templates,globals,wp_settings,create_missing,force_infra} }.
+	// Takes an automatic safety backup first; infra options are protected.
+	register_rest_route( 'bricks-bridge/v1', '/backup/import', array(
+		'methods'             => 'POST',
+		'permission_callback' => $can_manage,
+		'callback'            => function ( $request ) {
+			$body = $request->get_json_params();
+			$opts = isset( $body['options'] ) && is_array( $body['options'] ) ? $body['options'] : array();
+
+			if ( ! empty( $body['file'] ) ) {
+				$data = Bricks_API_Bridge_Backup_Export::read_backup( (string) $body['file'] );
+			} elseif ( ! empty( $body['backup'] ) && is_array( $body['backup'] ) ) {
+				$data = $body['backup'];
+			} else {
+				return new WP_REST_Response( array(
+					'code'    => 'no_input',
+					'message' => 'Provide either "file" (a stored backup filename) or "backup" (a full-state object).',
+				), 400 );
+			}
+
+			if ( is_wp_error( $data ) ) {
+				return new WP_REST_Response( array(
+					'code'    => $data->get_error_code(),
+					'message' => $data->get_error_message(),
+				), 400 );
+			}
+
+			$report = Bricks_API_Bridge_Backup_Export::import_full_state( $data, $opts );
+			if ( is_wp_error( $report ) ) {
+				return new WP_REST_Response( array(
+					'code'    => $report->get_error_code(),
+					'message' => $report->get_error_message(),
+				), 400 );
+			}
+			return new WP_REST_Response( array( 'success' => true, 'report' => $report ), 200 );
+		},
+	) );
+}
+
+add_action( 'rest_api_init', 'bricks_api_bridge_register_backup_routes' );
