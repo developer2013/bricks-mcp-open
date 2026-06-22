@@ -225,6 +225,38 @@ Ask your AI assistant:
 
 ---
 
+## Keeping your CSS editable in Bricks
+
+The whole point of Bricks is a visual builder — so CSS the assistant writes should stay **editable in Bricks**, not vanish into a place you can't reach. This plugin can inject per-page CSS into a private bundle (`_bab_page_assets`, output at `wp_head` priority **9997 — before** element CSS) via `bricks_update_page_assets`. That bundle is **not shown anywhere in the Bricks builder** and silently overrides what the builder displays — great for infrastructure CSS (`@font-face`, `:root{--vars}`, `@keyframes`, critical above-the-fold), but the wrong home for the layout/responsive/visual CSS you'll want to tweak by hand later. (This is exactly the r/BricksBuilder feedback: *"plugin-managed page CSS that a human can't edit defeats the purpose of using Bricks."*)
+
+**Where editable CSS belongs (priority order):**
+
+1. **Native element settings** — padding, typography, colors, etc. (fully visual controls)
+2. **Element `_cssCustom`** — per-element custom CSS, editable on the element's CSS tab
+3. **Page `customCss`** — `bricks_update_page_settings` → Bricks *Page Settings → Custom CSS*
+4. **Global classes** — editable in the Class Manager (build them with **native settings**, not `_cssCustom`, which is not compiled into page CSS via the API path)
+
+### The editability guard
+
+To stop editable CSS from leaking into the invisible bundle, the guard classifies the `css` field of `bricks_update_page_assets` and acts in three modes:
+
+| Mode | Behaviour |
+|------|-----------|
+| `off` *(default)* | No-op — fully backwards-compatible |
+| `warn` | Write proceeds, the REST response carries a `warnings[]` field naming the editable rules |
+| `block` | Editable CSS is rejected (HTTP 422) and **nothing is written** |
+
+**Enable it** by adding one line to your `wp-config.php` (above `/* That's all, stop editing! */`):
+
+```php
+// Bricks API Bridge — warn (or 'block') when editable CSS is sent to the private page-assets bundle
+define( 'BAB_GUARD_EDITABLE_CSS', 'warn' );
+```
+
+(Or, without editing files: `wp option update bab_guard_editable_css warn`.) On the MCP side, the `bricks_update_page_assets` tool warns by default; set the env var `BRICKS_MCP_BLOCK_EDITABLE_CSS=1` to hard-block there too. Infrastructure CSS always passes — use the `css_critical` / `css_deferred` fields for it.
+
+---
+
 ## Multi-Site Support
 
 Manage multiple WordPress sites from a single MCP server. Copy `sites.json.example` to `sites.json`:
