@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Bricks API Bridge
  * Description: REST API endpoints for Bricks Builder page data
- * Version: 1.2.2
+ * Version: 1.2.3
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Author: Bricks API Bridge
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'BRICKS_API_BRIDGE_VERSION', '1.2.2' );
+define( 'BRICKS_API_BRIDGE_VERSION', '1.2.3' );
 define( 'BRICKS_API_BRIDGE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BRICKS_API_BRIDGE_PLUGIN_FILE', __FILE__ );
 
@@ -284,6 +284,7 @@ function bricks_api_bridge_load_includes() {
 	require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-site-controller.php';
 	require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-dynamic-tags.php';
 	require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-design-tokens.php';
+	require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/css-guard.php';
 
 	// Security hardening — user enumeration, rate limiting, version hiding.
 	require_once BRICKS_API_BRIDGE_PLUGIN_DIR . 'includes/class-security-hardening.php';
@@ -1150,6 +1151,27 @@ function bricks_api_bridge_update_page_assets( $request ) {
 		), 404 );
 	}
 
+	// CSS editability guard. Only the generic `css` field is checked;
+	// css_critical/css_deferred are explicitly-named infra and always pass. Mode
+	// 'off' (default) is a no-op; 'warn' surfaces a response warning; 'block'
+	// rejects the write (422) so editable CSS never lands in _bab_page_assets.
+	$bab_css_guard    = bricks_api_bridge_editable_css_guard_mode();
+	$bab_css_warnings = array();
+	if ( 'off' !== $bab_css_guard && isset( $body['css'] ) ) {
+		$bab_css_class = bricks_api_bridge_classify_css( $body['css'] );
+		if ( 'editable' === $bab_css_class['kind'] || 'mixed' === $bab_css_class['kind'] ) {
+			$bab_css_rules = implode( ', ', array_slice( $bab_css_class['editable'], 0, 8 ) );
+			if ( 'block' === $bab_css_guard ) {
+				return new WP_REST_Response( array(
+					'code'           => 'bab_editable_css_blocked',
+					'message'        => 'Editable CSS rejected (BAB_GUARD_EDITABLE_CSS=block). The css field lands in plugin-private _bab_page_assets (wp_head 9997, before element CSS) and is not editable in the Bricks builder. Put layout/responsive/visual CSS in a native channel — element _cssCustom, page customCss via /page-settings, or global CSS — and reserve this field for infra (@font-face / :root vars / @keyframes / critical).',
+					'editable_rules' => array_slice( $bab_css_class['editable'], 0, 8 ),
+				), 422 );
+			}
+			$bab_css_warnings[] = 'Editable CSS stored in plugin-private _bab_page_assets (wp_head 9997, before element CSS) — invisible/uneditable in the Bricks builder. Move to _cssCustom / page customCss / global CSS. Editable rules: ' . $bab_css_rules;
+		}
+	}
+
 	$assets = array();
 
 	if ( isset( $body['css'] ) ) {
@@ -1179,11 +1201,15 @@ function bricks_api_bridge_update_page_assets( $request ) {
 		update_post_meta( $id, '_bab_needs_gsap', '1' );
 	}
 
-	return new WP_REST_Response( array(
+	$bab_assets_response = array(
 		'success' => true,
 		'page_id' => $id,
 		'assets'  => $assets,
-	), 200 );
+	);
+	if ( ! empty( $bab_css_warnings ) ) {
+		$bab_assets_response['warnings'] = $bab_css_warnings;
+	}
+	return new WP_REST_Response( $bab_assets_response, 200 );
 }
 
 /**

@@ -7,6 +7,7 @@ import { cache, TTL } from '../utils/cache.js';
 import { validateContent, isValidBricksId } from '../utils/validator.js';
 import { autofix } from '../utils/autofix.js';
 import { getActiveSiteKey } from '../site-manager.js';
+import { classifyCss, formatEditableCssWarning } from '../utils/css-classify.js';
 
 function formatPageEntry(page) {
   const elements = page.element_count || 0;
@@ -543,12 +544,12 @@ const assetTools = [
 
   {
     name: 'bricks_update_page_assets',
-    description: 'Set structured per-page assets. CSS outputs in wp_head (fixes FOUC/CLS), JS deps load via wp_enqueue_script (dedup, cache), JS outputs in wp_footer. Auto-sets GSAP flag when js_deps includes "gsap". Requires Bricks API Bridge v2.3+.',
+    description: 'Set structured per-page assets (JS deps via wp_enqueue_script, JS in wp_footer, infra CSS in wp_head). Auto-sets GSAP flag when js_deps includes "gsap". Requires Bricks API Bridge v2.3+. ⚠️ The css field lands in plugin-private _bab_page_assets (wp_head 9997, BEFORE element CSS) which is INVISIBLE/uneditable in the Bricks builder — reserve it for INFRA only (@font-face, :root{--vars}, @keyframes, critical CSS). Human-editable layout/responsive/visual CSS belongs in a native channel: element _cssCustom (bricks_patch_page), page customCss (bricks_update_page_settings), or global CSS/classes.',
     inputSchema: {
       type: 'object',
       properties: {
         page_id: { type: 'number', description: 'WordPress page/post ID' },
-        css: { type: 'string', description: 'CSS to output in <head> (no <style> tags needed, just rules)' },
+        css: { type: 'string', description: 'INFRA CSS only (raw rules, no <style> tags): @font-face, :root{--vars}, @keyframes, critical above-fold. NOT editable in the Bricks builder — do NOT put layout/responsive/visual CSS here; use element _cssCustom or page customCss instead. Editable CSS triggers a warning (or a hard block when BRICKS_MCP_BLOCK_EDITABLE_CSS=1).' },
         js_deps: {
           type: 'array',
           items: { type: 'string' },
@@ -563,6 +564,17 @@ const assetTools = [
       try {
         const { page_id, ...assets } = args;
         if (!page_id) return { content: [{ type: 'text', text: 'Error: page_id is required' }] };
+
+        // CSS editability guard — keep human-editable CSS in Bricks-native channels.
+        // The css field lands in _bab_page_assets (wp_head 9997, BEFORE element CSS),
+        // which has NO Bricks editing UI. Advisory by default; set
+        // BRICKS_MCP_BLOCK_EDITABLE_CSS=1 to hard-block (returns before writing).
+        const cssClass = classifyCss(assets.css);
+        const cssEditable = cssClass.kind === 'editable' || cssClass.kind === 'mixed';
+        if (cssEditable && process.env.BRICKS_MCP_BLOCK_EDITABLE_CSS === '1') {
+          return { content: [{ type: 'text', text: `Blocked (BRICKS_MCP_BLOCK_EDITABLE_CSS=1) — assets NOT written for page ${page_id}.\n${formatEditableCssWarning(cssClass)}` }] };
+        }
+
         cache.invalidatePrefix(`/pages/${page_id}/assets`);
         const result = await wpPut(`/pages/${page_id}/assets`, assets);
         const parts = [`Structured assets updated for page ${page_id}.`];
@@ -570,6 +582,7 @@ const assetTools = [
         if (assets.js_deps?.length) parts.push(`  Deps: ${assets.js_deps.join(', ')} → wp_enqueue_script`);
         if (assets.js) parts.push(`  JS: ${assets.js.length} chars → wp_footer`);
         if (assets.raw_footer) parts.push(`  Raw: ${assets.raw_footer.length} chars → wp_footer`);
+        if (cssEditable) parts.push(`\n${formatEditableCssWarning(cssClass)}`);
         return { content: [{ type: 'text', text: parts.join('\n') }] };
       } catch (error) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }] };

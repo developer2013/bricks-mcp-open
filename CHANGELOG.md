@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.3 (2026-06-22)
+
+### Added
+- **CSS editability guard — keep agent-written CSS editable in the Bricks builder.** Human-editable layout/responsive/visual CSS should live in a Bricks-native channel (element `_cssCustom`, page `customCss` via `bricks_update_page_settings`, or global classes) — not in the plugin-private `_bab_page_assets` bundle, which is injected at `wp_head` priority 9997 (before element CSS) and has no Bricks editing UI, so it silently overrides what the builder shows. The MCP `bricks_update_page_assets` now classifies the `css` field and **warns** when it carries editable rules (set `BRICKS_MCP_BLOCK_EDITABLE_CSS=1` to hard-block instead); the plugin enforces the same at the REST boundary via `BAB_GUARD_EDITABLE_CSS` (`off` default / `warn` / `block`), so non-MCP callers are covered too. Reserve the `css` field for infra (`@font-face`, `:root{--vars}`, `@keyframes`, critical CSS). (h/t the r/BricksBuilder feedback that plugin-managed page CSS a human can't edit defeats the purpose of using Bricks.)
+
+### Changed
+- **MCP steering: build global classes with native settings, not `_cssCustom`.** A global class's `_cssCustom` is not compiled into the page CSS via the API path (only its native settings are: `_padding`, `_typography`, `_background`, `_gridTemplateColumns`, `_columnGap`, `_border`, `_boxShadow`, …). Tool descriptions and the server preamble now steer toward the native-settings + element-`_cssCustom` channels.
+
 ## 1.2.2 (2026-06-17)
 
 ### Fixed
