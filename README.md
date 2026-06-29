@@ -150,6 +150,20 @@ mcp_servers:
 ```
 Hermes has native MCP client support since v0.2.0 — all 105 tools appear in its tool list automatically. Works with any model (Hermes 3, Llama, OpenRouter, etc.).
 
+> **Windows: TLS / "fetch failed" errors**
+> On Windows, Node.js ships its own bundled CA list and ignores the Windows certificate store. If your WordPress host sits behind a corporate proxy, TLS inspection, or a CA that's only trusted by Windows, every request fails with a certificate / `fetch failed` error. Tell Node to use the OS trust store by adding `--use-system-ca` **before** the script path in `args` (requires **Node.js ≥ 22.15**):
+> ```json
+> {
+>   "mcpServers": {
+>     "bricks": {
+>       "command": "node",
+>       "args": ["--use-system-ca", "C:\\path\\to\\bricks-mcp-open\\index.js"]
+>     }
+>   }
+> }
+> ```
+> Alternatively set it via the environment instead of `args`: `"env": { "NODE_OPTIONS": "--use-system-ca" }`. On older Node versions, upgrade to ≥ 22.15 (or use `NODE_EXTRA_CA_CERTS` pointing to your CA bundle as a fallback).
+
 ---
 
 ### Manage Your WordPress Site from Your Phone
@@ -221,7 +235,23 @@ Ask your AI assistant:
 | **Site Management** | 9 | Settings, page creation, validation, cache, stats |
 | **Media** | 3 | Upload, list, edit media files |
 | **Multi-Site** | 3 | Switch between WordPress sites at runtime |
-| **Utilities** | 3 | Connection test, HTML→Bricks converter, batch ops |
+| **Utilities** | 4 | Connection test, HTML→Bricks converter, Elementor→Bricks migration, batch ops |
+
+---
+
+## Migrating from Elementor?
+
+Switching from Elementor (Pro) to Bricks? `bricks_elementor_to_bricks` gives you a head start:
+
+1. In WordPress, open the Elementor editor → **⌄ (menu) → Export Template** (or **Templates → Saved Templates → Export**). You get a `.json` file.
+2. Run the tool with that file:
+   ```
+   bricks_elementor_to_bricks  file_path="/path/to/elementor-export.json"
+   ```
+3. You get a ready-to-review **Bricks element array** plus a coverage report.
+4. Review it, then push with `bricks_update_page` (take a snapshot first) or `bricks_import_page`.
+
+**How it works:** a purely structural translation — no headless browser, no rendering, no write to your site. Common widgets (heading, text, button, image, icon, divider, spacer) and the section/column/container structure map straight to **native, editable Bricks elements**. Widgets without a native equivalent (e.g. Pro sliders, forms, loops) become clearly-labelled placeholder blocks carrying a preview of their original content — so nothing is lost silently and you always see *where* and *what* to rebuild by hand. `line-height` is converted to a correct unitless ratio so you never inherit Elementor's px values as Bricks multipliers.
 
 ---
 
@@ -352,7 +382,7 @@ The included WordPress plugin (`bricks-api-bridge`) provides:
 
 ## Requirements
 
-- **Node.js** >= 18 or **Bun** >= 1.0
+- **Node.js** >= 18 or **Bun** >= 1.0 *(Windows behind a proxy/custom CA: use Node ≥ 22.15 with `--use-system-ca` — see [Windows TLS note](#5-add-to-your-ai-assistant))*
 - **WordPress** >= 6.0
 - **Bricks Builder** >= 2.0
 - **PHP** >= 8.0
