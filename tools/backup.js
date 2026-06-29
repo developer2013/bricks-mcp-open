@@ -89,6 +89,139 @@ const backupTools = [
       }
     },
   },
+
+  // ── Full-state (whole-site Bricks layer) backups ──
+  {
+    name: 'bricks_create_full_backup',
+    description: 'Create a full-state backup of the entire Bricks layer (all pages incl. drafts, templates, global styles/classes/fonts/colors, navigation menus, and curated WordPress core settings) as a single JSON file on the server. Use before risky bulk operations. Does NOT back up media files or the database — pair with a host snapshot for full disaster recovery.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      try {
+        const result = await wpPost('/backup/full', {});
+        const b = result.backup || {};
+        const c = b.counts || {};
+        return { content: [{ type: 'text', text: `Full-state backup created: ${b.file}\nSize: ${b.size} bytes\nPages: ${c.pages ?? '?'} | Templates: ${c.templates ?? '?'} | Menus: ${c.menus ?? '?'}\n\nDownload it from the WordPress admin (Bricks MCP → Backup & Export).` }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error creating full backup: ${error.message}` }] };
+      }
+    },
+  },
+
+  {
+    name: 'bricks_list_full_backups',
+    description: 'List all stored full-state backups (file name, date, size). Created via bricks_create_full_backup or the WordPress admin Backup section.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      try {
+        const data = await wpGet('/backup/full');
+        const backups = data.backups || [];
+        if (backups.length === 0) return { content: [{ type: 'text', text: 'No full-state backups found yet.' }] };
+        const list = backups.map(b => {
+          const when = b.time ? new Date(b.time * 1000).toISOString() : 'unknown';
+          return `${b.file} | ${when} | ${b.size} bytes`;
+        }).join('\n');
+        return { content: [{ type: 'text', text: `Full-state backups (${backups.length}):\n\n${list}` }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error listing full backups: ${error.message}` }] };
+      }
+    },
+  },
+
+  {
+    name: 'bricks_get_full_state',
+    description: 'Return the live full-state of the Bricks layer as JSON WITHOUT writing a file (all pages incl. drafts, templates, globals, menus, curated WP settings). Use to inspect or to save a backup snapshot locally on the client.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      try {
+        const state = await wpGet('/backup/state');
+        const m = state.manifest || {};
+        const summary = `Full-state snapshot (${m.timestamp || 'now'}):\n` +
+          `Pages: ${(state.pages || []).length} | Templates: ${(state.templates || []).length} | ` +
+          `Menus: ${((state.menus || {}).menus || []).length} | WP settings: ${Object.keys(state.wp_settings || {}).length}\n\n`;
+        return { content: [{ type: 'text', text: summary + JSON.stringify(state, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error fetching full state: ${error.message}` }] };
+      }
+    },
+  },
+
+  {
+    name: 'bricks_delete_full_backup',
+    description: 'Delete one stored full-state backup file by its filename (as listed by bricks_list_full_backups).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Backup filename, e.g. bricks-fullstate-20260611-120000-a1b2c3.json' },
+      },
+      required: ['file'],
+    },
+    handler: async (args) => {
+      try {
+        const { file } = args;
+        if (!file) return { content: [{ type: 'text', text: 'Error: file is required' }] };
+        const result = await wpDelete(`/backup/full?file=${encodeURIComponent(file)}`);
+        return { content: [{ type: 'text', text: result.message || 'Backup deleted.' }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error deleting full backup: ${error.message}` }] };
+      }
+    },
+  },
+
+  {
+    name: 'bricks_restore_full_backup',
+    description: 'Restore the site from a stored full-state backup file (pages incl. drafts, templates, global tokens, and WP settings). SAFE: takes an automatic safety backup first, and never overwrites infrastructure options (siteurl/home/active theme/active plugins) unless force_infra=true. Pages/templates match by ID (same-site restore). Menus are not restored yet.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Stored backup filename (from bricks_list_full_backups)' },
+        pages: { type: 'boolean', description: 'Restore pages (default: true)' },
+        templates: { type: 'boolean', description: 'Restore templates (default: true)' },
+        globals: { type: 'boolean', description: 'Restore global styles/classes/fonts/colors (default: true)' },
+        wp_settings: { type: 'boolean', description: 'Restore WordPress settings (default: true; infra keys still protected)' },
+        create_missing: { type: 'boolean', description: 'Create pages/templates whose ID no longer exists (default: true)' },
+        force_infra: { type: 'boolean', description: 'DANGER: also overwrite siteurl/home/active theme/plugins (default: false)' },
+      },
+      required: ['file'],
+    },
+    handler: async (args) => {
+      try {
+        const { file, ...opts } = args;
+        if (!file) return { content: [{ type: 'text', text: 'Error: file is required' }] };
+        const result = await wpPost('/backup/import', { file, options: opts });
+        return { content: [{ type: 'text', text: `Restore complete from ${file}.\nSafety backup: ${result.report?.safety_backup || 'n/a'}\n\n${JSON.stringify(result.report, null, 2)}` }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error restoring backup: ${error.message}` }] };
+      }
+    },
+  },
+
+  {
+    name: 'bricks_import_full_state',
+    description: 'Import a full-state backup supplied as JSON (e.g. a file downloaded from another site) rather than a server-stored file. Same safety guarantees as bricks_restore_full_backup (auto safety backup, infra protection).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        backup: { type: 'object', description: 'A full-state backup object (must contain a manifest, pages, etc.)' },
+        pages: { type: 'boolean', description: 'Restore pages (default: true)' },
+        templates: { type: 'boolean', description: 'Restore templates (default: true)' },
+        globals: { type: 'boolean', description: 'Restore globals (default: true)' },
+        wp_settings: { type: 'boolean', description: 'Restore WP settings (default: true; infra protected)' },
+        create_missing: { type: 'boolean', description: 'Create missing pages/templates (default: true)' },
+        force_infra: { type: 'boolean', description: 'DANGER: overwrite infra options (default: false)' },
+      },
+      required: ['backup'],
+    },
+    handler: async (args) => {
+      try {
+        const { backup, ...opts } = args;
+        if (!backup || typeof backup !== 'object') return { content: [{ type: 'text', text: 'Error: backup object is required' }] };
+        const result = await wpPost('/backup/import', { backup, options: opts });
+        return { content: [{ type: 'text', text: `Import complete.\nSafety backup: ${result.report?.safety_backup || 'n/a'}\n\n${JSON.stringify(result.report, null, 2)}` }] };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error importing backup: ${error.message}` }] };
+      }
+    },
+  },
 ];
 
 const snapshotTools = [
