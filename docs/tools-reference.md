@@ -192,4 +192,5 @@ All tools are prefixed with `bricks_`. Parameters marked with * are required.
 |------|-------------|
 | `bricks_connection_test` | Test WordPress connection. |
 | `bricks_html_to_bricks` | Convert HTML to Bricks elements. Params: html* |
+| `bricks_elementor_to_bricks` | Migrate an Elementor page/template to Bricks. Feed an Elementor JSON export (UI → Templates → Export) or raw `_elementor_data`; returns a Bricks element array + coverage report. Structural mapping, no HTML rendering, no write. Params: json, file_path |
 | `bricks_batch` | Execute multiple operations in one request. Params: operations* (max 20) |

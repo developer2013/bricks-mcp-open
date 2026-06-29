@@ -23,7 +23,7 @@ import {
   pageTools, searchTools, scriptTools, assetTools, seoTools, schemaTools, seoAuditTools,
   templateTools, backupTools, snapshotTools, mediaTools,
   themeStylesTools, batchTools, presetTools, globalClassesTools,
-  styleSystemTools, connectionTools, converterTools,
+  styleSystemTools, connectionTools, converterTools, elementorConverterTools,
   siteTools, advancedSeoTools, siteManagementTools,
   wpContentTools, menuTools, securityTools, observabilityTools,
 } from './tools/index.js';
@@ -63,6 +63,7 @@ const TOOLS = [
   ...styleSystemTools,
   ...connectionTools,
   ...converterTools,
+  ...elementorConverterTools,
   ...advancedSeoTools,
   ...siteManagementTools,
   ...wpContentTools,

@@ -12,6 +12,7 @@ import { globalClassesTools } from './global-classes.js';
 import { styleSystemTools } from './style-system.js';
 import { connectionTools } from './connection.js';
 import { converterTools } from './converter.js';
+import { elementorConverterTools } from './elementor-converter.js';
 import { siteTools } from './sites.js';
 import { advancedSeoTools } from './seo.js';
 import { siteManagementTools } from './site-tools.js';
@@ -39,6 +40,7 @@ export {
   styleSystemTools,
   connectionTools,
   converterTools,
+  elementorConverterTools,
   siteTools,
   advancedSeoTools,
   siteManagementTools,
