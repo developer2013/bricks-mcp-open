@@ -11,15 +11,20 @@
 import { isValidBricksId } from './validator.js';
 
 /**
- * Lenient ID check for autofix — accepts any lowercase alphanumeric string (3-12 chars)
- * with at least one digit. The strict 6-char check is in the validator.
- * Many existing presets use 5-char or 7-char IDs that work fine in Bricks.
+ * Lenient ID check for autofix — accepts any lowercase alphanumeric string (3-12 chars).
+ * The strict 6-char check is in the validator. Many existing presets use 5-char or
+ * 7-char IDs that work fine in Bricks.
+ *
+ * NOTE: no digit requirement. All-letter IDs (e.g. "wmhqxu") are valid in Bricks and
+ * common on cloned/legacy sites. Regenerating them on save orphaned #brxe-<id> CSS
+ * selectors and queryId/filterQueryId references (issue #13). We now keep any
+ * structurally-valid ID and only regenerate genuinely broken ones (missing / wrong
+ * charset / out of range) — and when we do, rewriteIdReferences() fixes every reference.
  */
 function isAcceptableBricksId(id) {
   if (typeof id !== 'string') return false;
   if (id.length < 3 || id.length > 12) return false;
   if (!/^[a-z0-9]+$/.test(id)) return false;
-  if (!/[0-9]/.test(id)) return false;
   return true;
 }
 
@@ -62,6 +67,67 @@ function generateBricksId(existingIds) {
   } while (existingIds.has(id) && attempts < 100);
   existingIds.add(id);
   return id;
+}
+
+/**
+ * Settings keys whose string value is a raw element-ID reference (not a `brxe-` selector).
+ * When an element ID is regenerated, these must be rewritten too or the loop/filter/
+ * pagination linkage breaks silently (issue #13).
+ */
+const ID_REF_KEYS = new Set(['queryId', 'filterQueryId', '_cssId']);
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Recursively rewrite one occurrence of an element ID inside a settings value.
+ * Covers two shapes:
+ *   1. `brxe-<oldId>` tokens in any string (e.g. `#brxe-<id>` / `.brxe-<id>` in _cssCustom).
+ *   2. Exact ID-reference fields (queryId, filterQueryId, _cssId) whose value === oldId.
+ * A negative lookahead on the token guards against clobbering a longer ID that shares a prefix.
+ */
+function rewriteIdInValue(value, key, oldId, newId, brxeRe) {
+  if (typeof value === 'string') {
+    let out = value;
+    if (out.indexOf('brxe-' + oldId) !== -1) out = out.replace(brxeRe, 'brxe-' + newId);
+    if (ID_REF_KEYS.has(key) && out === oldId) out = newId;
+    return out;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => rewriteIdInValue(v, key, oldId, newId, brxeRe));
+  }
+  if (value && typeof value === 'object') {
+    const res = {};
+    for (const [k, v] of Object.entries(value)) res[k] = rewriteIdInValue(v, k, oldId, newId, brxeRe);
+    return res;
+  }
+  return value;
+}
+
+/**
+ * Rewrite EVERY reference to an old element ID after it is regenerated:
+ * structural refs (parent / children) plus all in-settings references —
+ * `brxe-<id>` selectors/classes, queryId/filterQueryId/_cssId fields, and
+ * the same inside component-instance `properties`. Prevents orphaned CSS and
+ * broken query/filter linkage (issue #13). Call BEFORE assigning the new ID.
+ */
+function rewriteIdReferences(content, oldId, newId) {
+  const brxeRe = new RegExp('brxe-' + escapeRegExp(oldId) + '(?![a-z0-9])', 'g');
+  for (const el of content) {
+    if (!el) continue;
+    if (el.parent === oldId) el.parent = newId;
+    if (Array.isArray(el.children)) {
+      const idx = el.children.indexOf(oldId);
+      if (idx !== -1) el.children[idx] = newId;
+    }
+    if (el.settings && typeof el.settings === 'object') {
+      el.settings = rewriteIdInValue(el.settings, '', oldId, newId, brxeRe);
+    }
+    if (el.properties && typeof el.properties === 'object') {
+      el.properties = rewriteIdInValue(el.properties, '', oldId, newId, brxeRe);
+    }
+  }
 }
 
 /**
@@ -253,10 +319,17 @@ function applyClassFix(el, classes, log) {
  * @param {Object} [options] - Optional config
  * @param {Object} [options.learnings] - Learnings from bricks_get_learnings API
  *                                       Format: { "element_type:issue_type": { correction: { css_fix, add_classes, ... } } }
+ * @param {'normalize'|'preserve'} [options.mode='normalize'] - 'preserve' is for saving
+ *   EXISTING page/template content: element types and IDs are kept verbatim (no
+ *   div→block / block→container reclassification). 'normalize' (default) is for
+ *   new/imported/generated content and keeps the aggressive structural repairs.
+ *   ID regeneration of genuinely-broken IDs, reference rewriting, px-strip and the
+ *   other structural passes run in BOTH modes. See issue #13.
  * @returns {{ content: Array, log: string[], fixed: boolean }}
  */
 function autofix(content, options = {}) {
   const log = [];
+  const mode = options.mode === 'preserve' ? 'preserve' : 'normalize';
 
   if (!Array.isArray(content)) {
     return { content, log: ['Content is not an array — cannot autofix'], fixed: false };
@@ -279,31 +352,23 @@ function autofix(content, options = {}) {
     }
   }
 
-  // === Pass 2: Rename "div" → "block" ===
-  for (const el of content) {
-    if (el && el.name === 'div') {
-      log.push(`Renamed "div" → "block" on element ${el.id || '?'}`);
-      el.name = 'block';
-    }
-  }
+  // === Pass 2: (removed) "div" → "block" reclassification ===
+  // `div` is a valid Bricks layout element (unstyled div, no default width/display) and
+  // is distinct from `block` (full-width flex div) — see docs element-catalog. Rewriting
+  // it silently changed layout on every save (issue #13, Bug 1). We now preserve the
+  // submitted `name`. The HTML→Bricks converter still chooses div-vs-block at import time.
 
-  // === Pass 3: Fix missing/invalid IDs ===
+  // === Pass 3: Fix missing/genuinely-broken IDs ===
+  // Runs in BOTH modes, but only regenerates IDs that are missing or structurally
+  // invalid (wrong charset/length) — NOT merely digit-less. When an ID is regenerated,
+  // rewriteIdReferences() rewrites every reference to it (parent/children, brxe-<id>
+  // selectors, queryId/filterQueryId/_cssId, component properties) so nothing orphans.
   for (const el of content) {
     if (!el) continue;
     if (!el.id || !isAcceptableBricksId(el.id)) {
       const oldId = el.id;
       const newId = generateBricksId(existingIds);
-      // Update references in other elements
-      if (oldId) {
-        for (const other of content) {
-          if (!other) continue;
-          if (other.parent === oldId) other.parent = newId;
-          if (Array.isArray(other.children)) {
-            const idx = other.children.indexOf(oldId);
-            if (idx !== -1) other.children[idx] = newId;
-          }
-        }
-      }
+      if (oldId) rewriteIdReferences(content, oldId, newId);
       log.push(`Fixed ID: "${oldId || '(missing)'}" → "${newId}"`);
       el.id = newId;
     }
@@ -318,13 +383,16 @@ function autofix(content, options = {}) {
     }
   }
 
-  // === Pass 5: Promote block → container when flex properties present ===
-  for (const el of content) {
-    if (!el || el.name !== 'block') continue;
-    const hasFlexProp = Object.keys(el.settings || {}).some(k => FLEX_PROPERTIES.has(k));
-    if (hasFlexProp) {
-      log.push(`Promoted "block" → "container" on element ${el.id} (has flex properties)`);
-      el.name = 'container';
+  // === Pass 5: Promote block → container when flex properties present (normalize only) ===
+  // Reclassifies the submitted type, so skip it on 'preserve' saves of existing content.
+  if (mode === 'normalize') {
+    for (const el of content) {
+      if (!el || el.name !== 'block') continue;
+      const hasFlexProp = Object.keys(el.settings || {}).some(k => FLEX_PROPERTIES.has(k));
+      if (hasFlexProp) {
+        log.push(`Promoted "block" → "container" on element ${el.id} (has flex properties)`);
+        el.name = 'container';
+      }
     }
   }
 
@@ -468,4 +536,4 @@ function autofix(content, options = {}) {
   };
 }
 
-export { autofix, generateBricksId, stripPxValues, isAcceptableBricksId, applyCssFix, applyClassFix };
+export { autofix, generateBricksId, stripPxValues, isAcceptableBricksId, rewriteIdReferences, applyCssFix, applyClassFix };

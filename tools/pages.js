@@ -147,8 +147,12 @@ const pageTools = [
         if (!page_id) return { content: [{ type: 'text', text: 'Error: page_id is required' }] };
         if (!bricks_data || !Array.isArray(bricks_data)) return { content: [{ type: 'text', text: 'Error: bricks_data must be an array of elements' }] };
 
-        // Auto-fix common issues before validation
-        const fixResult = autofix(bricks_data);
+        // Auto-fix common issues before validation.
+        // 'preserve' mode: this is a full save of EXISTING page content, so keep
+        // element types and IDs verbatim (no div→block/block→container reclassify,
+        // no regeneration of digit-less legacy IDs). Aggressive normalization is
+        // reserved for new/imported content (build/append/import paths). See issue #13.
+        const fixResult = autofix(bricks_data, { mode: 'preserve' });
         const fixedData = fixResult.content;
         const fixLog = fixResult.log;
 
@@ -214,7 +218,7 @@ const pageTools = [
         // Validation Gate: validate 'update' element IDs
         for (const el of update) {
           if (el.id && !isValidBricksId(el.id)) {
-            return { content: [{ type: 'text', text: `Invalid element ID "${el.id}" in update array. Bricks IDs must be exactly 6 lowercase alphanumeric characters with at least one digit.` }] };
+            return { content: [{ type: 'text', text: `Invalid element ID "${el.id}" in update array. Bricks IDs must be exactly 6 lowercase alphanumeric characters.` }] };
           }
         }
 

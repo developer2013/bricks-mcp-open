@@ -97,7 +97,7 @@
           "Page ID matches request",
           "bricks_data is an array",
           "Each element has id, name, parent fields",
-          "Element IDs are 6 chars alphanumeric with at least 1 digit"
+          "Element IDs are 6 chars lowercase alphanumeric (digit optional)"
         ],
         "destructive": false
       },
@@ -1454,25 +1454,27 @@
       {
         "id": "T202",
         "tool": "bricks_update_page",
-        "description": "Submit element with no digits in ID",
+        "description": "Submit element with an all-letter (digit-less) ID — must be accepted and preserved (issue #13, Bug 2)",
         "args": {
           "page_id": "{{TEST_PAGE_ID}}",
           "bricks_data": [
             {
-              "id": "abcdef",
+              "id": "wmhqxu",
               "name": "section",
               "parent": 0,
               "children": [],
-              "settings": {}
+              "settings": { "_cssCustom": "#brxe-wmhqxu { color: red; }" }
             }
           ]
         },
-        "expected": "Validation error — IDs must contain at least 1 digit",
+        "expected": "Accepted — all-letter IDs are valid in Bricks and are NOT regenerated; the #brxe-wmhqxu selector stays intact",
         "pass_criteria": [
-          "Validation failed",
-          "Mentions digit requirement"
+          "Update succeeds (no validation error about digits)",
+          "ID 'wmhqxu' preserved (not renumbered)",
+          "_cssCustom still references #brxe-wmhqxu"
         ],
-        "destructive": false
+        "destructive": true,
+        "note": "Replaces test page content — restore from snapshot after"
       },
       {
         "id": "T203",
@@ -1493,7 +1495,7 @@
       {
         "id": "T204",
         "tool": "bricks_patch_page",
-        "description": "Patch with invalid element ID in update",
+        "description": "Patch with a malformed element ID in update (uppercase + symbol) is still rejected",
         "args": {
           "page_id": "{{TEST_PAGE_ID}}",
           "update": [{ "id": "INVALID!", "settings": { "text": "x" } }]
@@ -1501,6 +1503,21 @@
         "expected": "Validation error about invalid element ID",
         "pass_criteria": [
           "Error message about invalid ID",
+          "No crash"
+        ],
+        "destructive": false
+      },
+      {
+        "id": "T204b",
+        "tool": "bricks_patch_page",
+        "description": "Patch update targeting a legacy all-letter element ID must pass the gate (issue #13, Bug 3)",
+        "args": {
+          "page_id": "{{TEST_PAGE_ID}}",
+          "update": [{ "id": "wmhqxu", "settings": { "text": "updated copy" } }]
+        },
+        "expected": "Accepted by the update gate — digit-less 6-char IDs are valid, so no forced full-page save",
+        "pass_criteria": [
+          "No 'Invalid element ID' error mentioning digits",
           "No crash"
         ],
         "destructive": false

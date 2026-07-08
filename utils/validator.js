@@ -151,7 +151,11 @@ function isValidBricksId(id) {
   if (typeof id !== 'string') return false;
   if (id.length !== 6) return false;
   if (!/^[a-z0-9]+$/.test(id)) return false;
-  if (!/[0-9]/.test(id)) return false;
+  // NOTE: no digit requirement. Bricks accepts 6-char lowercase-alphanumeric IDs
+  // whether or not they contain a digit — cloned/legacy sites routinely have
+  // all-letter IDs (e.g. "wmhqxu") that are live and valid. Requiring a digit
+  // here only rejected those IDs and forced a destructive ID regeneration on
+  // save (see issue #13). Our own generator still mints digit-bearing IDs.
   return true;
 }
 
@@ -241,16 +245,15 @@ function validateContent(content) {
     if (!element.id) {
       errors.push(`${prefix}: Missing 'id' field`);
     } else if (!isValidBricksId(element.id)) {
-      errors.push(`${prefix} (${element.id}): Invalid Bricks ID format (must be 6 chars, alphanumeric, with at least one digit)`);
+      errors.push(`${prefix} (${element.id}): Invalid Bricks ID format (must be 6 lowercase alphanumeric characters)`);
     }
 
     if (!element.name) {
       errors.push(`${prefix} (${element.id || '?'}): Missing 'name' field`);
     }
 
-    if (element.name === 'div') {
-      errors.push(`${prefix} (${element.id || '?'}): Element type 'div' is not valid in Bricks. Use 'block', 'container', or 'section' instead.`);
-    }
+    // NOTE: `div` IS a valid Bricks layout element (unstyled div) — do not reject it.
+    // It is distinct from `block` (full-width flex div); see issue #13, Bug 1.
 
     if (element.id && idCounts.get(element.id) > 1) {
       errors.push(`${prefix} (${element.id}): Duplicate ID found`);

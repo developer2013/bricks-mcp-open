@@ -100,7 +100,6 @@ class Bricks_API_Bridge_Validator {
 				$this->validate_element( $element, $index );
 			}
 
-			$this->check_no_div_elements( $content );
 			$this->check_parent_child_integrity( $content );
 
 			// Smart checks (warnings + info).
@@ -129,7 +128,9 @@ class Bricks_API_Bridge_Validator {
 	/**
 	 * Check whether a Bricks element ID is valid.
 	 *
-	 * Valid IDs are exactly 6 alphanumeric characters and contain at least one digit.
+	 * Valid IDs are exactly 6 lowercase alphanumeric characters. No digit is required:
+	 * Bricks accepts all-letter IDs (e.g. "wmhqxu") and cloned/legacy sites routinely
+	 * have them. Requiring a digit forced destructive ID regeneration on save (issue #13).
 	 *
 	 * @param string $id The element ID to check.
 	 * @return bool
@@ -149,10 +150,6 @@ class Bricks_API_Bridge_Validator {
 
 		// IDs must be lowercase (consistent with JS validator).
 		if ( $id !== strtolower( $id ) ) {
-			return false;
-		}
-
-		if ( ! preg_match( '/[0-9]/', $id ) ) {
 			return false;
 		}
 
@@ -222,7 +219,7 @@ class Bricks_API_Bridge_Validator {
 		if ( $valid && ! $this->is_valid_bricks_id( $element['id'] ) ) {
 			$this->errors[] = sprintf(
 				/* translators: 1: element id, 2: element index */
-				__( 'Element at index %2$d has invalid Bricks ID "%1$s". IDs must be 6 alphanumeric characters with at least one digit.', 'bricks-api-bridge' ),
+				__( 'Element at index %2$d has invalid Bricks ID "%1$s". IDs must be 6 lowercase alphanumeric characters.', 'bricks-api-bridge' ),
 				isset( $element['id'] ) ? $element['id'] : '',
 				$index
 			);
@@ -318,31 +315,15 @@ class Bricks_API_Bridge_Validator {
 	}
 
 	/**
-	 * Check that no elements use name='div'.
+	 * Deprecated no-op. `div` is a valid Bricks layout element (unstyled div), distinct
+	 * from `block` — it must NOT be rejected (issue #13, Bug 1). Retained as a no-op so any
+	 * external caller keeps working; always reports valid.
 	 *
 	 * @param array $elements The content element array.
-	 * @return bool True if no div elements found.
+	 * @return bool Always true.
 	 */
 	public function check_no_div_elements( $elements ) {
-		if ( ! is_array( $elements ) ) {
-			return true;
-		}
-
-		$valid = true;
-
-		foreach ( $elements as $index => $element ) {
-			if ( is_array( $element ) && isset( $element['name'] ) && 'div' === $element['name'] ) {
-				$this->errors[] = sprintf(
-					/* translators: 1: element id, 2: element index */
-					__( 'Element "%1$s" at index %2$d uses "div" as element name. Use "block" or "container" instead.', 'bricks-api-bridge' ),
-					isset( $element['id'] ) ? $element['id'] : 'unknown',
-					$index
-				);
-				$valid = false;
-			}
-		}
-
-		return $valid;
+		return true;
 	}
 
 	/**
