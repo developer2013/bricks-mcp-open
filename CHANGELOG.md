@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.4 (2026-07-08)
+
+### Fixed
+- **Non-destructive saves of existing pages/templates.** The auto-fixer ran on *every* write and, when saving content it hadn't generated (an existing or cloned site), could silently rewrite element **types**, renumber **IDs**, and orphan the CSS/query references pointing at them — so a copy-only edit could change your layout. It now preserves existing content and reserves the aggressive repairs for new/imported content. (h/t @Lightning-Std, [#13](https://github.com/developer2013/bricks-mcp-open/issues/13).)
+  - **Element types are preserved.** `div` is a valid Bricks layout element (an unstyled `<div>`, distinct from `block`, a full-width flex div) — the auto-fixer no longer rewrites `div → block`, and the validator no longer rejects `name: "div"`. The `block → container` promotion (when flex properties are present) now runs only for new/imported content. (Note: the *HTML→Bricks converter*'s `<div>` handling from 1.2.2 is unchanged — this is about the auto-fixer that runs on save.)
+  - **Element IDs are preserved.** The "must contain a digit" rule is dropped as a gate — all-letter IDs (e.g. `wmhqxu`) are valid in Bricks and are kept verbatim (the 6-character length is still enforced). When an ID genuinely must be regenerated (missing/malformed), *every* reference is rewritten in the same pass: `brxe-<id>` selectors in `_cssCustom`, `queryId` / `filterQueryId` / `_cssId`, and component `properties` — previously only `parent` / `children` were updated, so self-referential CSS and loop/filter/pagination links silently broke.
+  - **`bricks_patch_page` accepts existing (legacy) IDs** in its `update` array. The strict "6 chars + digit" gate rejected the very IDs live on the page and forced a destructive full-page save; text-only patches now stay non-destructive (the patch path only auto-fixes newly *added* elements).
+
+### Changed
+- **Auto-fix now has a `preserve` / `normalize` mode.** Full saves of existing content (`update_page` / `update_template`) default to `preserve` (element types + IDs verbatim); new/imported/generated content (build / append / import) keeps `normalize` (the aggressive structural repairs). Override per call with the `autofix_mode` parameter, or site-wide with the `bab_autofix_mode` option / `BAB_AUTOFIX_MODE` constant. Plugin **1.4.1** · MCP **1.2.4**.
+
 ## 1.2.3 (2026-06-22)
 
 ### Added
