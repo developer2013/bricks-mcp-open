@@ -346,9 +346,12 @@ class Bricks_API_Bridge_Pages {
 		$content       = $body['bricks_data'];
 		$pre_validated = (bool) $request->get_param( 'pre_validated' );
 
-		// Auto-fix common issues before validation.
-		$fix_result = Bricks_API_Bridge_Autofix::autofix( $content );
-		$content    = $fix_result['content'];
+		// Auto-fix common issues before validation. A full save of EXISTING page content
+		// defaults to 'preserve' (keep element types + IDs verbatim); pass autofix_mode or
+		// set the bab_autofix_mode option/BAB_AUTOFIX_MODE constant to override. See issue #13.
+		$autofix_mode = Bricks_API_Bridge_Autofix::resolve_mode( $request );
+		$fix_result   = Bricks_API_Bridge_Autofix::autofix( $content, $autofix_mode );
+		$content      = $fix_result['content'];
 
 		// Quirks coercion: silent fixes (e.g. link.postId int→string) plus
 		// detection warnings for things we can't safely auto-rewrite.

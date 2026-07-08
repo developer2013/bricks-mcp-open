@@ -623,9 +623,12 @@ class Bricks_API_Bridge_Templates {
 		if ( isset( $body['bricks_data'] ) ) {
 			$content = $body['bricks_data'];
 
-			// Auto-fix common issues before validation.
-			$fix_result = Bricks_API_Bridge_Autofix::autofix( $content );
-			$content    = $fix_result['content'];
+			// Auto-fix before validation. A full save of EXISTING template content defaults
+			// to 'preserve' (keep element types + IDs verbatim); override via autofix_mode /
+			// bab_autofix_mode option / BAB_AUTOFIX_MODE constant. See issue #13.
+			$autofix_mode = Bricks_API_Bridge_Autofix::resolve_mode( $request );
+			$fix_result   = Bricks_API_Bridge_Autofix::autofix( $content, $autofix_mode );
+			$content      = $fix_result['content'];
 
 			// Validate.
 			$validation = $this->validator->validate( $content );
