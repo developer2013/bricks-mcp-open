@@ -121,13 +121,30 @@ class Bricks_API_Bridge_Backup_Export {
 			);
 			foreach ( $tmpls as $tmpl ) {
 				$templates[] = array(
-					'id'         => $tmpl->ID,
-					'title'      => $tmpl->post_title,
-					'status'     => $tmpl->post_status,
-					'type'       => get_post_meta( $tmpl->ID, '_bricks_template_type', true ) ?: 'section',
-					'conditions' => get_post_meta( $tmpl->ID, '_bricks_template_conditions', true ) ?: array(),
-					'elements'   => get_post_meta( $tmpl->ID, '_bricks_page_content_2', true ) ?: array(),
-					'meta'       => self::collect_meta( $tmpl->ID ),
+					'id'            => $tmpl->ID,
+					'title'         => $tmpl->post_title,
+					'status'        => $tmpl->post_status,
+					'type'          => get_post_meta( $tmpl->ID, '_bricks_template_type', true ) ?: 'section',
+					'conditions'    => get_post_meta( $tmpl->ID, '_bricks_template_conditions', true ) ?: array(),
+					'elements'      => get_post_meta( $tmpl->ID, '_bricks_page_content_2', true ) ?: array(),
+					/*
+					 * Header and footer templates keep their elements in
+					 * _bricks_page_header_2 / _bricks_page_footer_2. On those posts
+					 * _bricks_page_content_2 is an empty array, so without these three keys
+					 * the export captured a header or footer template as a title-and-type
+					 * stub with no elements, while still counting it as a template.
+					 *
+					 * The pages loop above already captures all three, and restore_post()
+					 * already consumes them. Only this loop was missing them.
+					 *
+					 * page_settings is captured here for the same reason: collect_meta()
+					 * skips _bricks_page_settings, so a template's documentTitle and
+					 * metaDescription were dropped too.
+					 */
+					'header'        => get_post_meta( $tmpl->ID, '_bricks_page_header_2', true ) ?: null,
+					'footer'        => get_post_meta( $tmpl->ID, '_bricks_page_footer_2', true ) ?: null,
+					'page_settings' => get_post_meta( $tmpl->ID, '_bricks_page_settings', true ) ?: null,
+					'meta'          => self::collect_meta( $tmpl->ID ),
 				);
 			}
 		}
@@ -432,14 +449,22 @@ class Bricks_API_Bridge_Backup_Export {
 	 * Validate a user-supplied filename against the strict backup pattern.
 	 *
 	 * Defends against path traversal: only the strict
-	 * `bricks-fullstate-YYYYMMDD-HHMMSS-xxxxxx.json` basename is ever accepted.
+	 * `bricks-fullstate-YYYYMMDD-HHMMSS-<token>.json` basename is ever accepted.
+	 *
+	 * The token length is a range, not a fixed 6. write_state() generates the name
+	 * with wp_generate_password( 20, false ), so a fixed {6} rejected every filename
+	 * this class had ever written, and restore_state() could not be reached for any
+	 * stored backup. The range keeps shorter legacy names resolvable.
+	 *
+	 * The traversal guard is unchanged: basename() strips any path, the character
+	 * set stays strictly alphanumeric, and the .json suffix is still required.
 	 *
 	 * @param string $file Candidate filename.
 	 * @return string|false Safe basename, or false if invalid.
 	 */
 	public static function safe_name( $file ) {
 		$file = basename( (string) $file );
-		if ( preg_match( '/^' . preg_quote( self::PREFIX, '/' ) . '\d{8}-\d{6}-[A-Za-z0-9]{6}\.json$/', $file ) ) {
+		if ( preg_match( '/^' . preg_quote( self::PREFIX, '/' ) . '\d{8}-\d{6}-[A-Za-z0-9]{6,32}\.json$/', $file ) ) {
 			return $file;
 		}
 		return false;
