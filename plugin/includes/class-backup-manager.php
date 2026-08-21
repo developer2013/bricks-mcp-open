@@ -44,6 +44,41 @@ class Bricks_API_Bridge_Backup {
 	}
 
 	/**
+	 * Resolve which Bricks content area a post's elements live in.
+	 *
+	 * Header and footer templates store their elements in the header/footer area,
+	 * not in content. Everything else, templates included, uses content.
+	 *
+	 * Mirrors Templates_Controller::get_area(), which is private static there.
+	 *
+	 * @param int $post_id The post ID.
+	 * @return string One of 'header', 'footer', 'content'.
+	 */
+	private function resolve_area( $post_id ) {
+		if ( 'bricks_template' !== get_post_type( $post_id ) ) {
+			return 'content';
+		}
+
+		$type = get_post_meta( $post_id, '_bricks_template_type', true );
+
+		if ( 'header' === $type || 'footer' === $type ) {
+			return $type;
+		}
+
+		return 'content';
+	}
+
+	/**
+	 * Meta key holding a post's Bricks elements, by content area.
+	 *
+	 * @param int $post_id The post ID.
+	 * @return string The postmeta key.
+	 */
+	private function area_meta_key( $post_id ) {
+		return '_bricks_page_' . $this->resolve_area( $post_id ) . '_2';
+	}
+
+	/**
 	 * Create a backup of the current Bricks page data.
 	 *
 	 * Rotates existing backups: 1->2, 2->3, 3->4, 4->5, new->1.
@@ -63,12 +98,14 @@ class Bricks_API_Bridge_Backup {
 			);
 		}
 
-		// Read from the correct Bricks meta key.
+		// Read from the correct Bricks meta key for this post's content area.
+		$area = $this->resolve_area( $post_id );
+
 		if ( class_exists( '\Bricks\Database' ) && method_exists( '\Bricks\Database', 'get_data' ) ) {
-			$current_data = \Bricks\Database::get_data( $post_id, 'content' );
+			$current_data = \Bricks\Database::get_data( $post_id, $area );
 		} else {
-			$current_data = get_post_meta( $post_id, '_bricks_page_content_2', true );
-			if ( empty( $current_data ) ) {
+			$current_data = get_post_meta( $post_id, $this->area_meta_key( $post_id ), true );
+			if ( empty( $current_data ) && 'content' === $area ) {
 				$current_data = get_post_meta( $post_id, '_bricks_page_content', true );
 			}
 		}
@@ -230,11 +267,11 @@ class Bricks_API_Bridge_Backup {
 
 		$backup_data = $backup['data'];
 
-		// Restore to the correct Bricks meta key.
+		// Restore to the correct Bricks meta key for this post's content area.
 		if ( class_exists( '\Bricks\Database' ) && method_exists( '\Bricks\Database', 'set_data' ) ) {
-			\Bricks\Database::set_data( $post_id, $backup_data, 'content' );
+			\Bricks\Database::set_data( $post_id, $backup_data, $this->resolve_area( $post_id ) );
 		} else {
-			update_post_meta( $post_id, '_bricks_page_content_2', $backup_data );
+			update_post_meta( $post_id, $this->area_meta_key( $post_id ), $backup_data );
 		}
 
 		// Purge caches (uses the shared function if available).
@@ -298,13 +335,13 @@ class Bricks_API_Bridge_Backup {
 			);
 		}
 
-		// Read current Bricks data.
+		// Read current Bricks data from this post's content area.
 		$current_data = null;
 		if ( class_exists( '\Bricks\Database' ) && method_exists( '\Bricks\Database', 'get_data' ) ) {
-			$current_data = \Bricks\Database::get_data( $post_id, 'content' );
+			$current_data = \Bricks\Database::get_data( $post_id, $this->resolve_area( $post_id ) );
 		}
 		if ( empty( $current_data ) ) {
-			$current_data = get_post_meta( $post_id, '_bricks_page_content_2', true );
+			$current_data = get_post_meta( $post_id, $this->area_meta_key( $post_id ), true );
 		}
 
 		if ( empty( $current_data ) ) {
@@ -459,11 +496,11 @@ class Bricks_API_Bridge_Backup {
 		// Create auto-backup of current state before restoring.
 		$this->create_backup( $post_id );
 
-		// Restore.
+		// Restore into this post's content area.
 		if ( class_exists( '\Bricks\Database' ) && method_exists( '\Bricks\Database', 'set_data' ) ) {
-			\Bricks\Database::set_data( $post_id, $found['data'], 'content' );
+			\Bricks\Database::set_data( $post_id, $found['data'], $this->resolve_area( $post_id ) );
 		} else {
-			update_post_meta( $post_id, '_bricks_page_content_2', $found['data'] );
+			update_post_meta( $post_id, $this->area_meta_key( $post_id ), $found['data'] );
 		}
 
 		if ( function_exists( 'bricks_api_bridge_purge_post_cache' ) ) {
