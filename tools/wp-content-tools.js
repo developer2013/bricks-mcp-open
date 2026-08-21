@@ -24,6 +24,7 @@ export const wpContentTools = [
     inputSchema: {
       type: 'object',
       properties: {
+        post_type: { type: 'string', description: 'REST base of the post type (default: posts). For a CPT pass its REST base, e.g. "service-area", "service", "faq". Look it up with bricks_get_post_types.', default: 'posts' },
         status: { type: 'string', description: 'Post status: publish, draft, pending, private, any (default: publish)', default: 'publish' },
         search: { type: 'string', description: 'Search term in title/content' },
         per_page: { type: 'number', description: 'Results per page (max 100, default 20)', default: 20 },
@@ -47,7 +48,7 @@ export const wpContentTools = [
         if (args.orderby) params.set('orderby', args.orderby);
         if (args.order) params.set('order', args.order);
 
-        const posts = await wpGetStandard(`/wp/v2/posts?${params}`, { raw: true });
+        const posts = await wpGetStandard(`/wp/v2/${args.post_type || 'posts'}?${params}`, { raw: true });
         if (!Array.isArray(posts) || posts.length === 0) {
           return { content: [{ type: 'text', text: 'No posts found.' }] };
         }
@@ -62,17 +63,18 @@ export const wpContentTools = [
 
   {
     name: 'bricks_wp_get_post',
-    description: 'Get a single WordPress post with full content, excerpt, categories, tags, featured image, and meta.',
+    description: 'Get a single WordPress post with full content, excerpt, categories, tags, featured image, and meta. Works on custom post types via post_type.',
     inputSchema: {
       type: 'object',
       properties: {
         post_id: { type: 'number', description: 'Post ID' },
+        post_type: { type: 'string', description: 'REST base of the post type (default: posts). For a CPT pass its REST base, e.g. "service-area", "service", "faq". Look it up with bricks_get_post_types.', default: 'posts' },
       },
       required: ['post_id'],
     },
     handler: async (args) => {
       try {
-        const p = await wpGetStandard(`/wp/v2/posts/${args.post_id}?context=edit`, { raw: true });
+        const p = await wpGetStandard(`/wp/v2/${args.post_type || 'posts'}/${args.post_id}?context=edit`, { raw: true });
         const info = [
           `ID: ${p.id}`,
           `Title: ${p.title?.raw || p.title?.rendered}`,
@@ -103,6 +105,7 @@ export const wpContentTools = [
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Post title' },
+        post_type: { type: 'string', description: 'REST base of the post type (default: posts). For a CPT pass its REST base, e.g. "service-area", "service", "faq". Look it up with bricks_get_post_types.', default: 'posts' },
         content: { type: 'string', description: 'Post content (HTML)' },
         status: { type: 'string', description: 'publish, draft, pending (default: draft)', default: 'draft' },
         excerpt: { type: 'string', description: 'Post excerpt' },
@@ -124,7 +127,7 @@ export const wpContentTools = [
         if (args.tags) body.tags = args.tags;
         if (args.featured_media) body.featured_media = args.featured_media;
 
-        const p = await wpPostStandard(`/wp/v2/posts`, body, { raw: true });
+        const p = await wpPostStandard(`/wp/v2/${args.post_type || 'posts'}`, body, { raw: true });
         return { content: [{ type: 'text', text: `Post created!\n  ID: ${p.id}\n  Title: ${p.title?.rendered}\n  Status: ${p.status}\n  URL: ${p.link}` }] };
       } catch (e) {
         return { content: [{ type: 'text', text: `Error: ${e.message}` }] };
@@ -134,11 +137,12 @@ export const wpContentTools = [
 
   {
     name: 'bricks_wp_update_post',
-    description: 'Update an existing WordPress post. Only sends changed fields.',
+    description: 'Update an existing WordPress post. Only sends changed fields. Works on custom post types via post_type.',
     inputSchema: {
       type: 'object',
       properties: {
         post_id: { type: 'number', description: 'Post ID to update' },
+        post_type: { type: 'string', description: 'REST base of the post type (default: posts). For a CPT pass its REST base, e.g. "service-area", "service", "faq". Look it up with bricks_get_post_types.', default: 'posts' },
         title: { type: 'string', description: 'New title' },
         content: { type: 'string', description: 'New content (HTML)' },
         status: { type: 'string', description: 'New status: publish, draft, pending, private' },
@@ -151,8 +155,8 @@ export const wpContentTools = [
     },
     handler: async (args) => {
       try {
-        const { post_id, ...fields } = args;
-        const p = await wpPostStandard(`/wp/v2/posts/${post_id}`, fields, { raw: true });
+        const { post_id, post_type, ...fields } = args;
+        const p = await wpPostStandard(`/wp/v2/${post_type || 'posts'}/${post_id}`, fields, { raw: true });
         return { content: [{ type: 'text', text: `Post ${post_id} updated.\n  Title: ${p.title?.rendered}\n  Status: ${p.status}\n  URL: ${p.link}` }] };
       } catch (e) {
         return { content: [{ type: 'text', text: `Error: ${e.message}` }] };
