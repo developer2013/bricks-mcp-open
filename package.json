@@ -1,6 +1,6 @@
 {
   "name": "bricks-mcp",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "type": "module",
   "description": "The most comprehensive open-source MCP server for Bricks Builder — 108 tools for pages, templates, styles, SEO, security audit, call/diff logging, and more.",
   "main": "index.js",
