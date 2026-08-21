@@ -928,6 +928,22 @@ function bricks_api_bridge_global_css_head() {
 
 add_action( 'wp_head', 'bricks_api_bridge_global_css_head', 9998 );
 
+/**
+ * Invalidate the bab_global_css read-cache whenever the underlying option
+ * changes through ANY path — the Bricks builder UI, another plugin, or our
+ * own REST handlers. Without this, an external write (e.g. editing global CSS
+ * in the Bricks settings screen) leaves the 5-minute transient stale, so
+ * bricks_get_global_css can return out-of-date (often empty) CSS and a
+ * read-modify-write "append" can silently clobber stored CSS.
+ */
+add_action( 'update_option_bricks_global_custom_css', 'bricks_api_bridge_flush_global_css_cache' );
+add_action( 'add_option_bricks_global_custom_css', 'bricks_api_bridge_flush_global_css_cache' );
+add_action( 'delete_option_bricks_global_custom_css', 'bricks_api_bridge_flush_global_css_cache' );
+
+function bricks_api_bridge_flush_global_css_cache() {
+	delete_transient( 'bab_global_css' );
+}
+
 // =========================================================================
 // Layer 2.1: GSAP Enqueue System
 // =========================================================================
