@@ -11,6 +11,9 @@
 ### Added
 - **The `bricks_wp_*` post tools work on custom post types.** `list` / `get` / `create` / `update` hardcoded `/wp/v2/posts`, so any CPT came back as `Invalid post ID` on an id the REST API resolves fine — which reads like a bad id rather than a wrong endpoint, and sent you hunting in the wrong place. An optional `post_type` parameter (the REST base, discoverable via `bricks_get_post_types`) is now threaded through all four tools; the default `posts` preserves existing behaviour exactly. Taxonomies (categories / tags) are unchanged — they'd need a different parameter. (h/t @floodwayprintco, [#15](https://github.com/developer2013/bricks-mcp-open/pull/15).)
 
+### Removed
+- **The in-editor agent panel is no longer part of the plugin ZIP.** `agent-relay.php` and `assets/agent-panel.js` / `assets/agent-panel.preview.html` shipped inside the 1.2.4 release archive but never had a source file in this repository — the archive was built from a working copy rather than from `main`, so the released artifact could not be reproduced from the tag it claimed to be. They are removed rather than carried forward. **If you installed the 1.2.4 ZIP and use the panel, updating removes it.** Everything else in the plugin is unaffected: no REST route, capability check, or option is touched by this. From this release on, the ZIP is built from `plugin/` on `main` and its contents match the tag.
+
 Plugin **1.4.2** · MCP **1.2.5**.
 
 ## 1.2.4 (2026-07-08)
