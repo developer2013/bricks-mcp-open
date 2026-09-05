@@ -30,12 +30,31 @@ function isAcceptableBricksId(id) {
 
 /**
  * Keys whose string values should never be stripped of "px".
+ *
+ * Matched against the whole settings path, not just the immediate key: `icon`
+ * protects `icon.height` and `icon.width` exactly as it protects a bare `icon`
+ * string. A key on this list marks a subtree the fixer has no business rewriting.
  */
 const PX_SAFE_KEYS = new Set([
   'content', '_cssCustom', 'url', 'name', 'label', 'tag',
   'link', 'href', 'src', 'alt', 'placeholder', 'icon', 'class',
   'text', 'title', 'description',
 ]);
+
+/**
+ * True when any segment of the settings path is px-safe.
+ *
+ * The walker used to test only the immediate key, so for
+ * `settings.icon = { height: "20px" }` the allowlist was tested against `height`
+ * and never matched — `icon` was on the list but only ever protected a bare
+ * `icon` string. Nothing nested was protected, on any save.
+ */
+function isPxSafePath(path) {
+  for (const segment of path) {
+    if (PX_SAFE_KEYS.has(segment)) return true;
+  }
+  return false;
+}
 
 /**
  * Flex-related settings that indicate a block should be a container.
@@ -132,28 +151,36 @@ function rewriteIdReferences(content, oldId, newId) {
 
 /**
  * Recursively strip bare "px" values from settings.
- * "80px" → "80", but leaves _cssCustom, content, text, etc. untouched.
+ * "80px" → "80", but leaves _cssCustom, content, text, icon.height, etc. untouched.
+ *
+ * `path` is the full key path from the element's settings root; it is what the
+ * PX_SAFE_KEYS allowlist is tested against, so a safe key protects its whole
+ * subtree. `currentKey` is kept for direct callers of the exported function and
+ * is used only when no path has been accumulated yet.
  */
-function stripPxValues(obj, currentKey = '', log, elementId) {
+function stripPxValues(obj, currentKey = '', log, elementId, path = []) {
   if (obj === null || obj === undefined) return obj;
 
+  const keyPath = path.length ? path : (currentKey ? [currentKey] : []);
+
   if (typeof obj === 'string') {
-    if (!PX_SAFE_KEYS.has(currentKey) && /^\d+px$/.test(obj)) {
+    if (!isPxSafePath(keyPath) && /^\d+px$/.test(obj)) {
       const fixed = obj.replace(/px$/, '');
-      log.push(`Stripped px: "${obj}" → "${fixed}" on element ${elementId}, key "${currentKey}"`);
+      const where = keyPath.join('.') || currentKey;
+      log.push(`Stripped px: "${obj}" → "${fixed}" on element ${elementId}, key "${where}"`);
       return fixed;
     }
     return obj;
   }
 
   if (Array.isArray(obj)) {
-    return obj.map((item, i) => stripPxValues(item, currentKey, log, elementId));
+    return obj.map((item) => stripPxValues(item, currentKey, log, elementId, keyPath));
   }
 
   if (typeof obj === 'object') {
     const result = {};
     for (const [key, value] of Object.entries(obj)) {
-      result[key] = stripPxValues(value, key, log, elementId);
+      result[key] = stripPxValues(value, key, log, elementId, keyPath.concat(key));
     }
     return result;
   }
