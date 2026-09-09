@@ -184,8 +184,19 @@ const templateTools = [
         let fixResult = null;
         let validation = null;
         if (content && Array.isArray(content)) {
-          // Auto-fix common issues before validation
-          fixResult = autofix(content);
+          // Auto-fix common issues before validation.
+          //
+          // mode:'preserve', because this is a save of content that already exists.
+          // Without it the mode defaults to 'normalize', Pass 5 runs, and el.name
+          // 'block' is rewritten to 'container' on any element carrying a flex
+          // property — a structural change to a layout a human authored. Observed on
+          // a live template: three blocks silently promoted to containers.
+          //
+          // This mirrors what 06d34cd already does for pages (tools/pages.js), which
+          // fixed the page writer and left the template writer normalizing.
+          // bricks_create_template still normalizes, deliberately: content the tool
+          // generates itself is exactly what the aggressive repairs are for.
+          fixResult = autofix(content, { mode: 'preserve' });
           const fixedContent = fixResult.content;
 
           validation = validateContent(fixedContent);
