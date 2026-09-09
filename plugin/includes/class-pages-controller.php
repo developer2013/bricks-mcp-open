@@ -593,9 +593,26 @@ class Bricks_API_Bridge_Pages {
 		// Create backup BEFORE modifying data.
 		$this->backup_manager->create_backup( $post_id );
 
+		// Track what the patch actually touched. `count( $update )` and
+		// `count( $remove )` describe the REQUEST, not the work: ids that don't
+		// exist in this content area fall straight through the loops below, so a
+		// patch aimed at the wrong area reported success against zero matches.
+		$matched_update_ids = array();
+		$matched_remove_ids = array();
+		$invalid_updates    = 0;
+
 		// Remove elements (including children).
 		if ( ! empty( $remove ) ) {
 			$to_remove = array_flip( $remove );
+
+			// Count matches against the ids the caller actually asked for, before the
+			// closure below pulls in descendants — those are our doing, not theirs.
+			foreach ( $current as $el ) {
+				if ( is_array( $el ) && isset( $el['id'] ) && isset( $to_remove[ $el['id'] ] ) ) {
+					$matched_remove_ids[] = $el['id'];
+				}
+			}
+
 			do {
 				$found_more = false;
 				foreach ( $current as $el ) {
@@ -621,11 +638,13 @@ class Bricks_API_Bridge_Pages {
 		// settings entirely — useful when you need to drop stale keys.
 		foreach ( $update as $upd ) {
 			if ( ! isset( $upd['id'] ) || ! is_array( $upd ) ) {
+				++$invalid_updates;
 				continue;
 			}
 			$upd_mode = isset( $upd['mode'] ) && 'replace' === $upd['mode'] ? 'replace' : 'merge';
 			foreach ( $current as &$el ) {
 				if ( $el['id'] === $upd['id'] ) {
+					$matched_update_ids[] = $upd['id'];
 					if ( isset( $upd['settings'] ) && is_array( $upd['settings'] ) ) {
 						if ( 'replace' === $upd_mode ) {
 							$el['settings'] = $upd['settings'];
@@ -696,6 +715,50 @@ class Bricks_API_Bridge_Pages {
 			}
 		}
 
+		// Built by hand rather than with wp_list_pluck(): malformed entries without an
+		// "id" are counted separately above and must not reach an array lookup here.
+		$requested_update_ids = array();
+		foreach ( $update as $upd ) {
+			if ( is_array( $upd ) && isset( $upd['id'] ) ) {
+				$requested_update_ids[] = $upd['id'];
+			}
+		}
+		$unmatched_ids = array_values(
+			array_unique(
+				array_merge(
+					array_diff( $requested_update_ids, $matched_update_ids ),
+					array_diff( $remove, $matched_remove_ids )
+				)
+			)
+		);
+
+		// A patch that matched nothing is a client error, not a no-op. Reject it
+		// instead of saving: with an empty $current (the normal case for a page whose
+		// header comes from a template rather than its own _bricks_page_header_2 meta)
+		// the save below would write an empty array into that area, giving the page an
+		// empty per-page override where it previously had none. `add` is checked too —
+		// if elements were added the patch did real work and partial misses are only
+		// reported, not fatal.
+		$requested_touch = count( $update ) + count( $remove );
+		$matched_touch   = count( $matched_update_ids ) + count( $matched_remove_ids );
+		if ( $requested_touch > 0 && 0 === $matched_touch && empty( $add ) ) {
+			return new WP_Error(
+				'bricks_api_bridge_no_match',
+				sprintf(
+					/* translators: 1: content area, 2: comma-separated element IDs */
+					__( 'No elements matched in the "%1$s" area, so nothing was written. Unmatched IDs: %2$s. If these IDs are correct, they may live in a header/footer template rather than on this page — patch the template instead.', 'bricks-api-bridge' ),
+					$content_area,
+					implode( ', ', $unmatched_ids )
+				),
+				array(
+					'status'        => 422,
+					'content_area'  => $content_area,
+					'unmatched_ids' => $unmatched_ids,
+					'element_count' => count( $current ),
+				)
+			);
+		}
+
 		// Save to the correct content area.
 		$patch_meta_map = array(
 			'content' => '_bricks_page_content_2',
@@ -720,13 +783,37 @@ class Bricks_API_Bridge_Pages {
 			$alts_written = Bricks_API_Bridge_Quirks_Coercion::write_image_alts( $pending_alts );
 		}
 
+		// `updated` / `removed` report elements actually touched, not the size of the
+		// request. `*_requested` keeps the old numbers available for callers that
+		// need them, so the difference is visible rather than inferred.
 		$response = array(
-			'success'       => true,
-			'element_count' => count( $current ),
-			'added'         => count( $add ),
-			'updated'       => count( $update ),
-			'removed'       => count( $remove ),
+			'success'           => true,
+			'content_area'      => $content_area,
+			'element_count'     => count( $current ),
+			'added'             => count( $add ),
+			'updated'           => count( $matched_update_ids ),
+			'removed'           => count( $matched_remove_ids ),
+			'updated_requested' => count( $update ),
+			'removed_requested' => count( $remove ),
 		);
+
+		if ( ! empty( $unmatched_ids ) ) {
+			$response['unmatched_ids'] = $unmatched_ids;
+			$warnings[]                = sprintf(
+				/* translators: 1: number of IDs, 2: content area, 3: comma-separated element IDs */
+				__( '%1$d requested ID(s) did not exist in the "%2$s" area and were skipped: %3$s', 'bricks-api-bridge' ),
+				count( $unmatched_ids ),
+				$content_area,
+				implode( ', ', $unmatched_ids )
+			);
+		}
+		if ( $invalid_updates > 0 ) {
+			$warnings[] = sprintf(
+				/* translators: %d: number of malformed update entries */
+				__( '%d update entr(y/ies) had no "id" and were skipped.', 'bricks-api-bridge' ),
+				$invalid_updates
+			);
+		}
 
 		if ( ! empty( $fix_log ) ) {
 			$response['autofix_log'] = $fix_log;
