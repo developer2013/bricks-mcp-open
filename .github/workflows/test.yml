@@ -1,0 +1,27 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The autofix parity check compares the JS fixer against the PHP one, so
+      # both runtimes have to be present. Without PHP the suite still passes —
+      # it skips — which would make this workflow a green light for nothing.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - run: npm ci
+
+      - run: npm test
