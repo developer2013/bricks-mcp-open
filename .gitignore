@@ -19,3 +19,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Release artifact (built by scripts/build-plugin-zip.sh)
+bricks-api-bridge.zip

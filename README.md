@@ -63,8 +63,9 @@ The `plugin/` folder in this repo contains the **Bricks API Bridge** WordPress p
 
 **Option C: WP-CLI**
 ```bash
-# From the repo root
-cd plugin && zip -r ../bricks-api-bridge.zip . && cd ..
+# From the repo root. Builds from git, not from your working copy,
+# so uncommitted files can't end up in the archive.
+./scripts/build-plugin-zip.sh
 wp plugin install bricks-api-bridge.zip --activate
 ```
 
