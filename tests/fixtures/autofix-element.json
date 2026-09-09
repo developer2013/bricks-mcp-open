@@ -1,0 +1,38 @@
+[
+  {
+    "id": "hdr001",
+    "name": "section",
+    "parent": 0,
+    "children": ["ico002", "blk003"],
+    "settings": { "_padding": { "top": "96px" } }
+  },
+  {
+    "id": "ico002",
+    "name": "icon",
+    "parent": "hdr001",
+    "children": [],
+    "settings": {
+      "icon": { "library": "themify", "icon": "ti-menu", "height": "20px", "width": "20px" },
+      "_padding": { "top": "60px", "left": "24px" },
+      "_typography": { "font-size": "18px" },
+      "link": { "type": "external", "url": "https://example.com/a-20px-path" },
+      "_cssCustom": "%root% { gap: 12px; }",
+      "_gradient": { "colors": [{ "stop": "40px" }, { "stop": "80px" }] },
+      "icon:mobile_portrait": { "height": "16px" }
+    }
+  },
+  {
+    "id": "blk003",
+    "name": "block",
+    "parent": "hdr001",
+    "children": ["txt004"],
+    "settings": { "_direction": "row", "_padding": { "top": "40px" } }
+  },
+  {
+    "id": "txt004",
+    "name": "text-basic",
+    "parent": "blk003",
+    "children": [],
+    "settings": { "text": "zwölf 20px Boxkämpfer" }
+  }
+]
