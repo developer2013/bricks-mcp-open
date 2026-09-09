@@ -20,6 +20,14 @@ class Bricks_API_Bridge_Autofix {
 	/**
 	 * Keys whose string values should never have "px" stripped.
 	 *
+	 * Matched against the whole settings path, not just the immediate key: `icon`
+	 * protects `icon.height` and `icon.width` exactly as it protects a bare `icon`
+	 * string. A key on this list marks a subtree the fixer has no business rewriting.
+	 *
+	 * Kept identical to PX_SAFE_KEYS in utils/autofix.js — the JS fixer runs on the
+	 * client and this one runs on the same content one hop later, so any divergence
+	 * means one of them silently undoes the other.
+	 *
 	 * @var string[]
 	 */
 	private static $px_safe_keys = array(
@@ -404,23 +412,61 @@ class Bricks_API_Bridge_Autofix {
 	}
 
 	/**
+	 * True when any segment of the settings path is px-safe.
+	 *
+	 * The walker used to test only the immediate key, so for
+	 * `settings['icon'] = array( 'height' => '20px' )` the allowlist was tested
+	 * against `height` and never matched — `icon` was on the list but only ever
+	 * protected a bare `icon` string. Nothing nested was protected, on any save.
+	 *
+	 * @param string[] $path Key path from the element's settings root.
+	 * @return bool
+	 */
+	private static function is_px_safe_path( $path ) {
+		foreach ( $path as $segment ) {
+			if ( in_array( $segment, self::$px_safe_keys, true ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Recursively strip bare "px" values from settings.
 	 *
-	 * @param mixed  $value      The value to process.
-	 * @param string $current_key Current key name for safe-key checks.
-	 * @param array  $log         Log array (passed by reference).
-	 * @param string $element_id  Element ID for logging.
+	 * "80px" → "80", but leaves _cssCustom, content, text, icon.height, etc. untouched.
+	 *
+	 * `$path` is the full key path from the element's settings root; it is what the
+	 * allowlist is tested against, so a safe key protects its whole subtree.
+	 * `$current_key` is kept for the existing call signature and is used only when no
+	 * path has been accumulated yet.
+	 *
+	 * Mirrors stripPxValues() in utils/autofix.js. Note that both share one remaining
+	 * gap: Bricks writes responsive settings as `<key>:<breakpoint>` (measured:
+	 * `_padding:mobile_landscape` and 15 further keys across 2,301 elements), so
+	 * `icon:mobile_portrait` does not match `icon` as a path segment and is still
+	 * stripped. Closing that means testing the segment up to the first ":" — to be
+	 * done in BOTH fixers at once, never in one of them.
+	 *
+	 * @param mixed    $value       The value to process.
+	 * @param string   $current_key Current key name, for direct callers.
+	 * @param array    $log         Log array (passed by reference).
+	 * @param string   $element_id  Element ID for logging.
+	 * @param string[] $path        Full key path from the settings root.
 	 * @return mixed
 	 */
-	private static function strip_px_values( $value, $current_key, &$log, $element_id ) {
+	private static function strip_px_values( $value, $current_key, &$log, $element_id, $path = array() ) {
 		if ( is_null( $value ) ) {
 			return $value;
 		}
 
+		$key_path = ! empty( $path ) ? $path : ( '' !== $current_key ? array( $current_key ) : array() );
+
 		if ( is_string( $value ) ) {
-			if ( ! in_array( $current_key, self::$px_safe_keys, true ) && preg_match( '/^\d+px$/', $value ) ) {
+			if ( ! self::is_px_safe_path( $key_path ) && preg_match( '/^\d+px$/', $value ) ) {
 				$fixed = preg_replace( '/px$/', '', $value );
-				$log[] = sprintf( 'Stripped px: "%s" → "%s" on element %s, key "%s"', $value, $fixed, $element_id, $current_key );
+				$where = ! empty( $key_path ) ? implode( '.', $key_path ) : $current_key;
+				$log[] = sprintf( 'Stripped px: "%s" → "%s" on element %s, key "%s"', $value, $fixed, $element_id, $where );
 				return $fixed;
 			}
 			return $value;
@@ -428,7 +474,12 @@ class Bricks_API_Bridge_Autofix {
 
 		if ( is_array( $value ) ) {
 			foreach ( $value as $k => $v ) {
-				$value[ $k ] = self::strip_px_values( $v, is_string( $k ) ? $k : $current_key, $log, $element_id );
+				// Integer keys are list indices, not settings keys: carry the path
+				// through unchanged so an array of values inherits its parent's
+				// protection, exactly as the JS walker does.
+				$child_path = is_string( $k ) ? array_merge( $key_path, array( $k ) ) : $key_path;
+
+				$value[ $k ] = self::strip_px_values( $v, is_string( $k ) ? $k : $current_key, $log, $element_id, $child_path );
 			}
 			return $value;
 		}
