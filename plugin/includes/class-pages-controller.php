@@ -228,16 +228,29 @@ class Bricks_API_Bridge_Pages {
 		// Compute content hash for optimistic locking.
 		$content_hash = md5( wp_json_encode( $bricks_data ) );
 
+		// Per-area hashes. Without these there is no correct hash to send on a
+		// header or footer write, which is why check_content_hash() could not
+		// simply be made area-aware on its own. `content` deliberately reuses the
+		// value computed above rather than recomputing it, so the two can never
+		// drift — the read above has legacy meta fallbacks that a fresh lookup
+		// would not reproduce on an older page.
+		$content_hashes = array( 'content' => $content_hash );
+		foreach ( array( 'header', 'footer' ) as $hash_area ) {
+			$area_data                    = $this->load_page_data( $post_id, $hash_area );
+			$content_hashes[ $hash_area ] = empty( $area_data ) ? null : md5( wp_json_encode( $area_data ) );
+		}
+
 		$response = array(
-			'id'           => $post->ID,
-			'title'        => get_the_title( $post->ID ),
-			'slug'         => $post->post_name,
-			'status'       => $post->post_status,
-			'type'         => $post->post_type,
-			'url'          => get_permalink( $post->ID ),
-			'meta_key'     => $meta_key_used,
-			'content_hash' => $content_hash,
-			'bricks_data'  => $bricks_data,
+			'id'             => $post->ID,
+			'title'          => get_the_title( $post->ID ),
+			'slug'           => $post->post_name,
+			'status'         => $post->post_status,
+			'type'           => $post->post_type,
+			'url'            => get_permalink( $post->ID ),
+			'meta_key'       => $meta_key_used,
+			'content_hash'   => $content_hash,
+			'content_hashes' => $content_hashes,
+			'bricks_data'    => $bricks_data,
 		);
 
 		// Include header data if it exists.
@@ -337,7 +350,7 @@ class Bricks_API_Bridge_Pages {
 		// Optimistic locking: check If-Match header against current content hash.
 		$if_match = $request->get_header( 'If-Match' );
 		if ( ! empty( $if_match ) ) {
-			$conflict = $this->check_content_hash( $post_id, $if_match );
+			$conflict = $this->check_content_hash( $post_id, $if_match, $content_area );
 			if ( is_wp_error( $conflict ) ) {
 				return $conflict;
 			}
@@ -525,7 +538,7 @@ class Bricks_API_Bridge_Pages {
 		// Optimistic locking: check If-Match header against current content hash.
 		$if_match = $request->get_header( 'If-Match' );
 		if ( ! empty( $if_match ) ) {
-			$conflict = $this->check_content_hash( $post_id, $if_match );
+			$conflict = $this->check_content_hash( $post_id, $if_match, $content_area );
 			if ( is_wp_error( $conflict ) ) {
 				return $conflict;
 			}
@@ -1076,27 +1089,62 @@ class Bricks_API_Bridge_Pages {
 	 * @param string $if_match The expected content hash from the client.
 	 * @return true|WP_Error True if hash matches (or no data exists), WP_Error on mismatch.
 	 */
-	private function check_content_hash( $post_id, $if_match ) {
-		$current_data = null;
-		if ( class_exists( '\Bricks\Database' ) && method_exists( '\Bricks\Database', 'get_data' ) ) {
-			$current_data = \Bricks\Database::get_data( $post_id, 'content' );
-		}
-		if ( empty( $current_data ) ) {
-			$current_data = get_post_meta( $post_id, '_bricks_page_content_2', true );
+	private function check_content_hash( $post_id, $if_match, $content_area = 'content' ) {
+		// Was hardcoded to the content area while both call sites also write
+		// header and footer, so a header write was gated on the page BODY's hash:
+		// it could 409 because the body changed, and never caught a concurrent
+		// header edit.
+		if ( 'content' === $content_area ) {
+			$current_data = null;
+			if ( class_exists( '\Bricks\Database' ) && method_exists( '\Bricks\Database', 'get_data' ) ) {
+				$current_data = \Bricks\Database::get_data( $post_id, 'content' );
+			}
+			if ( empty( $current_data ) ) {
+				$current_data = get_post_meta( $post_id, '_bricks_page_content_2', true );
+			}
+		} else {
+			$current_data = $this->load_page_data( $post_id, $content_area );
 		}
 
-		// No existing data — nothing to conflict with.
+		// No existing data in this area — nothing to conflict with.
 		if ( empty( $current_data ) ) {
 			return true;
 		}
 
 		$current_hash = md5( wp_json_encode( $current_data ) );
 		if ( $current_hash !== $if_match ) {
+			// Until this method became area-aware there was no way to obtain a
+			// header or footer hash — `content_hash` from a read is the CONTENT
+			// area's, and passing it to a header write silently "passed". Callers
+			// still doing that would otherwise get a dead-end 409 telling them to
+			// re-read something that has no hash. Detect that exact case and name
+			// the field that does.
+			$hint = '';
+			if ( 'content' !== $content_area ) {
+				$content_data = $this->load_page_data( $post_id, 'content' );
+				if ( empty( $content_data ) ) {
+					$content_data = get_post_meta( $post_id, '_bricks_page_content_2', true );
+				}
+				if ( ! empty( $content_data ) && md5( wp_json_encode( $content_data ) ) === $if_match ) {
+					$hint = sprintf(
+						/* translators: %1$s: content area name, used twice */
+						__( ' The hash you sent is the content area\'s, not the "%1$s" area\'s — read the page again and use content_hashes.%1$s instead.', 'bricks-api-bridge' ),
+						$content_area
+					);
+				}
+			}
+
 			return new WP_Error(
 				'bricks_api_bridge_conflict',
-				__( 'Content has been modified since you last read it. Fetch the page again to get the latest content_hash.', 'bricks-api-bridge' ),
+				sprintf(
+					/* translators: 1: content area name, 2: optional hint sentence */
+					__( 'The "%1$s" area has been modified since you last read it. Fetch the page again to get the latest content_hashes.%1$s.%2$s', 'bricks-api-bridge' ),
+					$content_area,
+					$hint
+				),
 				array(
 					'status'       => 409,
+					'content_area' => $content_area,
 					'current_hash' => $current_hash,
 				)
 			);

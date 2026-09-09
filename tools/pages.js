@@ -104,7 +104,12 @@ const pageTools = [
           `Status: ${data.status || 'unknown'}`,
           `URL: ${data.url || 'N/A'}`,
           `Elements (${content_area}): ${areaElements ? areaElements.length : 0}`,
-          data.content_hash ? `Content Hash: ${data.content_hash}` : null,
+          // Show the hash for the area actually being read. Optimistic locking is
+          // per-area, so printing only the content hash next to header/footer data
+          // is what led callers to send the wrong one.
+          data.content_hashes?.[content_area]
+            ? `Content Hash (${content_area}): ${data.content_hashes[content_area]}`
+            : (data.content_hash ? `Content Hash: ${data.content_hash}` : null),
           data.bricks_header_data ? `Header: ${data.bricks_header_data.length} elements` : null,
           data.bricks_footer_data ? `Footer: ${data.bricks_footer_data.length} elements` : null,
         ].filter(Boolean).join('\n');
@@ -136,7 +141,7 @@ const pageTools = [
       properties: {
         page_id: { type: 'number', description: 'WordPress page/post ID' },
         bricks_data: { type: 'array', description: 'Array of Bricks elements to save', items: { type: 'object' } },
-        content_hash: { type: 'string', description: 'Content hash from bricks_get_page for optimistic locking. If provided, update fails with 409 if page was modified since read.' },
+        content_hash: { type: 'string', description: 'Content hash for optimistic locking, from bricks_get_page. Locking is per content_area: for header/footer use content_hashes.header / content_hashes.footer, NOT content_hash (that is the content area). If provided, the update fails with 409 if that area changed since you read it.' },
         content_area: { type: 'string', enum: ['content', 'header', 'footer'], description: 'Which content area to write (default: content). Use header/footer to manage template elements.', default: 'content' },
       },
       required: ['page_id', 'bricks_data'],
@@ -191,7 +196,7 @@ const pageTools = [
         update: { type: 'array', items: { type: 'object' }, description: 'Elements to update (must include id, only changed settings needed)' },
         remove: { type: 'array', items: { type: 'string' }, description: 'Element IDs to remove' },
         regenerate_css: { type: 'boolean', default: true, description: 'Whether to regenerate CSS after patching (default: true)' },
-        content_hash: { type: 'string', description: 'Content hash from bricks_get_page for optimistic locking. If provided, patch fails with 409 if page was modified since read.' },
+        content_hash: { type: 'string', description: 'Content hash for optimistic locking, from bricks_get_page. Locking is per content_area: for header/footer use content_hashes.header / content_hashes.footer, NOT content_hash (that is the content area). If provided, the patch fails with 409 if that area changed since you read it.' },
         content_area: { type: 'string', enum: ['content', 'header', 'footer'], description: 'Which content area to patch (default: content).', default: 'content' },
       },
       required: ['page_id'],
