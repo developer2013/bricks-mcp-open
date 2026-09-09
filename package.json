@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node index.js",
     "start:bun": "bun index.js",
-    "inspect": "npx @modelcontextprotocol/inspector node index.js"
+    "inspect": "npx @modelcontextprotocol/inspector node index.js",
+    "test": "node tests/run.mjs"
   },
   "keywords": [
     "bricks-builder",
